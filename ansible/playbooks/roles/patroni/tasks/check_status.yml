@@ -1,0 +1,34 @@
+---
+
+- name: Trigger status handlers
+  ansible.builtin.set_fact:
+    _trigger_status: true
+  changed_when: true
+  notify:
+    - Patroni status
+    - Etcd status
+
+- name: Show statuses now
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for cluster to be fully formed
+  ansible.builtin.uri:
+    url: "http://{{ ansible_host }}:8008/cluster"
+    return_content: true
+  register: patroni_cluster
+  run_once: true
+  until:
+    - patroni_cluster.json is defined
+    - patroni_cluster.json.members | selectattr('role', 'equalto', 'leader') | list | length == 1
+    - patroni_cluster.json.members | selectattr('state', 'equalto', 'streaming') | list | length == (groups['psql'] | length - 1)
+    - patroni_cluster.json.members | selectattr('role', 'in', ['sync_standby', 'quorum_standby']) | list | length >= 1
+  retries: 60
+  delay: 5
+
+- name: Show cluster members
+  ansible.builtin.debug:
+    msg: "{{ item.name }}: {{ item.role }} / {{ item.state }} / TL {{ item.timeline | default('-') }} / lag {{ item.lag | default(0) }}"
+  loop: "{{ patroni_cluster.json.members }}"
+  loop_control:
+    label: "{{ item.name }}"
+  run_once: true

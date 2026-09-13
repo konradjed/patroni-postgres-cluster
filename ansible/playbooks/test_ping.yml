@@ -1,0 +1,6 @@
+---
+- name: Ping Test
+  hosts: psql
+  tasks:
+    - name: Ping psql hosts
+      ping:

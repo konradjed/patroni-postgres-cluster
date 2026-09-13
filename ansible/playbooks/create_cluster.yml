@@ -1,0 +1,7 @@
+---
+- name: Prepare Patroni cluster
+  hosts: psql
+  become: true
+  any_errors_fatal: true
+  roles:
+    - role: patroni

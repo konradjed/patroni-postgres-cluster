@@ -1,0 +1,15 @@
+servers:
+  children:
+    psql:
+      hosts:
+        pg1:
+          ansible_host: 192.168.172.101
+        pg2:
+          ansible_host: 192.168.172.102
+        pg3:
+          ansible_host: 192.168.172.103
+
+test:
+  hosts:
+    test1:
+      ansible_host: 192.168.172.133

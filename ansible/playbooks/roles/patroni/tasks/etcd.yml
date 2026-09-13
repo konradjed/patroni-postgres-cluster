@@ -1,0 +1,94 @@
+---
+
+- name: Install etcd
+  ansible.builtin.dnf:
+    name:
+      - etcd
+      - python3-python-etcd
+    state: present
+
+- name: Disable and stop etcd
+  ansible.builtin.systemd_service:
+    name: etcd
+    state: stopped
+    enabled: false
+
+# Run with -e patroni_etcd_reset=true on all nodes together (no --limit)
+- name: Reset etcd cluster state
+  when: patroni_etcd_reset | bool
+  block:
+    # Recreated below by "Create etcd data directory"
+    - name: Remove etcd data directory
+      ansible.builtin.file:
+        path: "{{ patroni_etcd_data_dir }}"
+        state: absent
+
+- name: Create etcd data directory
+  ansible.builtin.file:
+    path: "{{ patroni_etcd_data_dir }}"
+    state: directory
+    owner: etcd
+    group: etcd
+    mode: '0700'
+
+- name: Copy etcd config
+  ansible.builtin.template:
+    src: etcd.conf.yaml.j2
+    dest: /etc/etcd/etcd.conf.yaml
+    mode: '0644'
+    owner: etcd
+    group: etcd
+
+- name: Change ownership and permissions
+  ansible.builtin.file:
+    path: /etc/etcd
+    owner: etcd
+    group: etcd
+    mode: '0700'
+
+- name: Change ownership and permissions for ssl
+  ansible.builtin.file:
+    path: /etc/etcd/ssl
+    state: directory
+    owner: etcd
+    group: etcd
+    mode: '0700'
+
+- name: Copy ssl certificates
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ patroni_etcd_ssl }}"
+    owner: etcd
+    group: etcd
+    mode: '0600'
+  loop:
+    - "certs/ca/ca.crt"
+    - "certs/etcd/etcd-{{ inventory_hostname }}.crt"
+    - "certs/etcd/etcd-{{ inventory_hostname }}.key"
+
+- name: Create etcd service drop-in directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/etcd.service.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Copy etcd service override
+  ansible.builtin.template:
+    src: override.conf.j2
+    dest: /etc/systemd/system/etcd.service.d/override.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - Reload systemd
+
+- name: Apply pending handlers before starting etcd
+  ansible.builtin.meta: flush_handlers
+
+- name: Start and enable etcd
+  ansible.builtin.systemd_service:
+    name: etcd
+    state: started
+    enabled: true

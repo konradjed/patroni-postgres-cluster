@@ -1,0 +1,9 @@
+### Editing /etc/systemd/system/etcd.service.d/override.conf
+[Unit]
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Restart=always
+RestartSec=5

@@ -1,0 +1,25 @@
+# SPDX-License-Identifier: MIT-0
+---
+# handlers file for patroni
+- name: Reload systemd
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: udev reload
+  ansible.builtin.command: udevadm control --reload-rules
+
+- name: Patroni service status
+  ansible.builtin.service_facts:
+  listen: "Patroni status"
+- name: Print Patroni status
+  ansible.builtin.debug:
+    msg: "Patroni status for {{ inventory_hostname }}: {{ ansible_facts.services['percona-patroni.service'].state }}"
+  listen: "Patroni status"
+
+- name: Etcd service status
+  ansible.builtin.service_facts:
+  listen: "Etcd status"
+- name: Print etcd status
+  ansible.builtin.debug:
+    msg: "Etcd status for {{ inventory_hostname }}: {{ ansible_facts.services['etcd.service'].state }}"
+  listen: "Etcd status"

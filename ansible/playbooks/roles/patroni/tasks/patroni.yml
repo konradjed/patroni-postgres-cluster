@@ -1,0 +1,162 @@
+---
+
+- name: Install patroni
+  ansible.builtin.dnf:
+    name:
+      - percona-postgresql18-server
+      - python3-pip
+      - python3-devel
+      - binutils
+      - percona-patroni
+    state: present
+
+- name: Ensure that postgrs and patroni are stopped and disabled
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+    masked: true
+  loop:
+    - patroni
+    - postgresql-18
+
+- name: Ensure that postgrs and patroni are stopped and disabled
+  ansible.builtin.systemd_service:
+    name: percona-patroni
+    state: stopped
+    enabled: false
+
+- name: Create patroni dir
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0755'
+  loop:
+    - /etc/patroni
+    - /etc/patroni/ssl
+
+- name: Copy SSL Certificates for Patroni server
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ patroni_patroni_ssl }}"
+    mode: '0600'
+    owner: postgres
+    group: postgres
+  loop:
+    - "certs/ca/ca.crt"
+    - "certs/patroni/patroni-{{ inventory_hostname }}.crt"
+    - "certs/patroni/patroni-{{ inventory_hostname }}.key"
+
+- name: Copy SSL Certificates for Patroni dcs client
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ patroni_patroni_ssl_client }}"
+    mode: '0600'
+    owner: postgres
+    group: postgres
+  loop:
+    - "certs/ca/ca.crt"
+    - "certs/dcs-client/dcsclient-{{ inventory_hostname }}.crt"
+    - "certs/dcs-client/dcsclient-{{ inventory_hostname }}.key"
+
+- name: Copy template patroni config
+  ansible.builtin.template:
+    src: patroni.yml.j2
+    dest: /etc/patroni/patroni.yml
+    mode: '0600'
+    owner: postgres
+    group: postgres
+  diff: false
+  no_log: true
+
+- name: Wipe postgres data and WAL archive
+  when: patroni_wipe_psql_data_and_arch | bool
+  block:
+    # patronictl remove asks for the cluster name and a confirmation, answers go via stdin
+    - name: Remove cluster from DCS
+      ansible.builtin.command: patronictl -c {{ patroni_patroni_config_yaml }} remove {{ patroni_cluster_name }}
+      args:
+        stdin: "{{ patroni_cluster_name }}\nYes I am aware"
+      changed_when: true
+      run_once: true
+
+    - name: Remove postgres data and WAL
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ patroni_postgres_data_dir }}"
+        - "{{ patroni_pgbackup_path }}"
+
+- name: Create postgres directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    owner: postgres
+    group: postgres
+    mode: '0700'
+    state: directory
+  loop:
+    - "{{ patroni_postgres_data_dir }}"
+    - "{{ patroni_pgbackup_path }}"
+    - "{{ patroni_postgres_ssl }}"
+
+- name: Copy SSL Certificates for Postgres
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: "{{ patroni_postgres_ssl }}"
+    mode: '0600'
+    owner: postgres
+    group: postgres
+  loop:
+    - "certs/ca/ca.crt"
+    - "certs/postgres/pgsrv-{{ inventory_hostname }}.crt"
+    - "certs/postgres/pgsrv-{{ inventory_hostname }}.key"
+
+- name: Load softdog module now
+  community.general.modprobe:
+    name: softdog
+    state: present
+
+- name: Load softdog module at boot
+  ansible.builtin.copy:
+    content: "softdog\n"
+    dest: /etc/modules-load.d/softdog.conf
+    mode: '0644'
+    owner: root
+    group: root
+
+- name: Set watchdog device ownership
+  ansible.builtin.file:
+    path: /dev/watchdog
+    owner: postgres
+    group: postgres
+    mode: '0600'
+
+- name: Add rule for watchdog
+  ansible.builtin.copy:
+    content: 'KERNEL=="watchdog", OWNER="postgres", GROUP="postgres", MODE="0600"'
+    dest: /etc/udev/rules.d/61-watchdog.rules
+    mode: '0644'
+    owner: root
+    group: root
+  notify: udev reload
+
+- name: Copy template patroni service
+  ansible.builtin.template:
+    src: percona-patroni.service.j2
+    dest: /etc/systemd/system/percona-patroni.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Apply pending handlers before continuing
+  ansible.builtin.meta: flush_handlers
+
+- name: Start percona-patroni
+  ansible.builtin.systemd_service:
+    name: percona-patroni
+    state: started
+    enabled: true

@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: MIT-0
+---
+# defaults file for patroni
+patroni_app_addr: 192.168.172.0/24
+patroni_pg_token: PostgreSQL_HA_Cluster
+patroni_cluster_name: pg_cluster
+patroni_replicator_password: ""
+patroni_postgres_password: ""
+# Wipe etcd data dir on all nodes before start (for a failed bootstrap). Destroys DCS state!
+patroni_etcd_reset: true
+patroni_wipe_psql_data_and_arch: true

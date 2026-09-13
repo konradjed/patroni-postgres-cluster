@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT-0
+---
+# vars file for patroni
+patroni_etcd_data_dir: /var/lib/etcd
+patroni_etcd_ssl: /etc/etcd/ssl
+patroni_patroni_config_yaml: /etc/patroni/patroni.yml
+patroni_patroni_ssl: /etc/patroni/ssl
+patroni_patroni_ssl_client: /etc/patroni/dcs-client
+patroni_patroni_bin: /usr/bin/patroni
+patroni_patroni_restart_svc_type: 'no'
+patroni_pgbackup_path: /var/lib/pgsql/archived
+patroni_postgres_data_dir: /var/lib/pgsql/18/data
+patroni_postgres_main_dir: /var/lib/pgsql
+patroni_postgres_socket: /var/run/postgresql
+patroni_postgres_bin: /usr/pgsql-18/bin
+patroni_postgres_ssl: /var/lib/pgsql/18/ssl
+patroni_vars_replicator_password: "{{ patroni_replicator_password }}"
+patroni_vars_postgres_password: "{{ patroni_postgres_password }}"

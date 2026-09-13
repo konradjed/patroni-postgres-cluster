@@ -1,0 +1,112 @@
+namespace: /service/
+scope: {{ patroni_cluster_name }}
+name: {{ inventory_hostname }}
+
+restapi:
+    listen: 0.0.0.0:8008
+    connect_address: {{ ansible_host }}:8008
+    certfile: {{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt
+    keyfile: {{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.key
+    cafile: {{ patroni_patroni_ssl }}/ca.crt
+    verify_client: required
+
+ctl:
+    certfile: {{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt
+    keyfile: {{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.key
+    cacert: {{ patroni_patroni_ssl }}/ca.crt
+    insecure: false
+
+etcd3:
+    hosts: {% for host in groups['psql'] %}{{ hostvars[host].ansible_host }}:2379{% if not loop.last %},{% endif %}{% endfor +%}
+    protocol: https
+    cacert: {{ patroni_patroni_ssl_client }}/ca.crt
+    cert: {{ patroni_patroni_ssl_client }}/dcsclient-{{ inventory_hostname }}.crt
+    key: {{ patroni_patroni_ssl_client }}/dcsclient-{{ inventory_hostname }}.key
+
+bootstrap:
+  dcs:
+      ttl: 30
+      loop_wait: 10
+      retry_timeout: 10
+      primary_start_timeout: 0
+      maximum_lag_on_failover: 1048576
+      check_timeline: true
+      synchronous_mode: quorum
+      synchronous_node_count: 1
+      synchronous_mode_strict: true
+
+      postgresql:
+          use_pg_rewind: true
+          use_slots: true
+          parameters:
+              ssl: "on"
+              ssl_min_protocol_version: "TLSv1.3"
+              ssl_cert_file: {{ patroni_postgres_ssl }}/pgsrv-{{ inventory_hostname }}.crt
+              ssl_key_file: {{ patroni_postgres_ssl }}/pgsrv-{{ inventory_hostname }}.key
+              ssl_ca_file: {{ patroni_postgres_ssl }}/ca.crt
+              synchronous_commit: "on"
+              password_encryption: scram-sha-256
+              wal_level: replica
+              hot_standby: "on"
+              wal_keep_size: 160MB
+              max_wal_senders: 5
+              max_replication_slots: 10
+              wal_log_hints: "on"
+              logging_collector: 'on'
+              max_wal_size: '10GB'
+              archive_mode: "on"
+              archive_timeout: 600s
+              archive_command: "cp -f %p {{ patroni_pgbackup_path }}/%f"
+              restore_command: "cp {{ patroni_pgbackup_path }}/%f %p"
+          pg_hba:
+              - local all all          peer
+              - hostssl all all 127.0.0.1/32 scram-sha-256
+              - hostssl all all ::1/128 scram-sha-256
+              - hostssl replication replicator 127.0.0.1/32 scram-sha-256
+{% for host in groups['psql'] %}
+              - hostssl replication replicator {{ hostvars[host].ansible_host }}/32 scram-sha-256
+{% endfor %}
+{% for host in groups['psql'] %}
+              - hostssl postgres postgres {{ hostvars[host].ansible_host }}/32 scram-sha-256
+{% endfor %}
+              - hostssl app app {{ patroni_app_addr }}/32 scram-sha-256
+              
+
+  initdb:
+      - encoding: UTF8
+      - data-checksums
+
+
+postgresql:
+    cluster_name: {{ patroni_cluster_name }}
+    listen: 0.0.0.0:5432
+    connect_address: {{ ansible_host }}:5432
+    data_dir: {{ patroni_postgres_data_dir }}
+    bin_dir: {{ patroni_postgres_bin }}
+    pgpass: {{ patroni_postgres_main_dir }}/.pgpass
+    authentication:
+        replication:
+            username: replicator
+            password: {{ patroni_vars_replicator_password | to_json }}
+            sslmode: verify-full
+            sslrootcert: {{ patroni_postgres_ssl }}/ca.crt
+        superuser:
+            username: postgres
+            password: {{ patroni_vars_postgres_password | to_json }}
+    parameters:
+        unix_socket_directories: "{{ patroni_postgres_socket }}/"
+    create_replica_methods:
+        - basebackup
+    basebackup:
+        checkpoint: 'fast'
+
+watchdog:
+    mode: required
+    device: /dev/watchdog
+    safety_margin: 5
+
+tags:
+    nofailover: false
+    noloadbalance: false
+    clonefrom: false
+    nosync: false

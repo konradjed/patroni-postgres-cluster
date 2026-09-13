@@ -1,0 +1,87 @@
+---
+
+# Check password is set
+- name: Verify required passwords are provided
+  ansible.builtin.assert:
+    that:
+      - patroni_postgres_password | length > 0
+      - patroni_replicator_password | length > 0
+    fail_msg: >-
+      Please set passwords
+    success_msg: "Passwords has been set"
+
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+    use: systemd
+
+- name: Set hosts file
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "{{ ansible_host }} {{ inventory_hostname }}"
+    insertafter: EOF
+    state: present
+
+# Add Percona repos
+
+- name: Import Percona GPG key
+  ansible.builtin.rpm_key:
+    key: https://repo.percona.com/yum/PERCONA-PACKAGING-KEY
+    state: present
+
+- name: Install percona
+  ansible.builtin.dnf:
+    name:
+      - 'https://repo.percona.com/yum/percona-release-latest.noarch.rpm'
+      - firewalld
+    state: present
+
+- name: Execute percona release script
+  ansible.builtin.command: percona-release setup -y ppg18
+  args:
+    creates: /etc/yum.repos.d/percona-ppg-18-release.repo
+
+# Configure Firewalld
+- name: Start and enable firewalld
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+    enabled: true
+
+- name: Create patroni zone
+  ansible.posix.firewalld:
+    zone: patroni
+    state: present
+    permanent: true
+
+- name: Reload firewalld
+  ansible.builtin.command: firewall-cmd --reload
+
+# Must be allowed before the source binding, otherwise SSH from patroni_subnet can be rejected
+- name: Allow SSH in patroni zone
+  ansible.posix.firewalld:
+    zone: patroni
+    service: ssh
+    permanent: true
+    state: enabled
+    immediate: true
+
+- name: Assign Patroni zone to source
+  ansible.posix.firewalld:
+    zone: patroni
+    source: "{{ patroni_subnet }}"
+    permanent: true
+    state: enabled
+    immediate: true
+
+- name: Add etcd ports
+  ansible.posix.firewalld:
+    zone: patroni
+    permanent: true
+    port: "{{ item }}/tcp"
+    state: enabled
+    immediate: true
+  loop:
+    - "2379-2380"
+    - "5432"
+    - "8008"

@@ -1,0 +1,55 @@
+# Ansible: cache, retry files and logs
+.ansible/
+*.retry
+ansible.log
+
+# Local Ansible Vault password files (encrypted vault.yml stays tracked)
+.vault_pass*
+.vault-pass*
+vault_pass.txt
+vault_password.txt
+.vault_password*
+
+# Python / Ansible virtual environments and cache
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.molecule/
+
+# Private keys, certificates and certificate signing requests
+*.key
+*.crt
+*.csr
+*.pem
+*.cer
+*.der
+*.p12
+*.pfx
+*.p7b
+*.p7c
+*.p7s
+*.jks
+*.keystore
+*.srl
+*.crl
+
+# SSH keys with standard filenames
+id_rsa
+id_dsa
+id_ecdsa
+id_ed25519
+id_ecdsa_sk
+id_ed25519_sk
+
+# Local environment secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+
+.vscode/
+configs/
+harness/
+test/
