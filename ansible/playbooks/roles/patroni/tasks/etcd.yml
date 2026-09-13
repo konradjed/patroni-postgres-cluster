@@ -1,18 +1,5 @@
 ---
 
-- name: Install etcd
-  ansible.builtin.dnf:
-    name:
-      - etcd
-      - python3-python-etcd
-    state: present
-
-- name: Disable and stop etcd
-  ansible.builtin.systemd_service:
-    name: etcd
-    state: stopped
-    enabled: false
-
 # Run with -e patroni_etcd_reset=true on all nodes together (no --limit)
 - name: Reset etcd cluster state
   when: patroni_etcd_reset | bool

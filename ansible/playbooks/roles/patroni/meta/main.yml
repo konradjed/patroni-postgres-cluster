@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT-0
 galaxy_info:
   author: Konrad Je
-  description: Create Patroni Psql cluster
+  description: Create Patroni Postgres cluster
   company: ERS
   license: license (BSD-3-Clause, MIT)
   min_ansible_version: 2.20.1
-  role_name: percona_patroni_cluster
+  role_name: percona_patroni_cluster_create
   galaxy_tags: [psql, patroni, etcd]
   platforms:
     - name: Rocky

@@ -1,31 +1,5 @@
 ---
 
-- name: Install patroni
-  ansible.builtin.dnf:
-    name:
-      - percona-postgresql18-server
-      - python3-pip
-      - python3-devel
-      - binutils
-      - percona-patroni
-    state: present
-
-- name: Ensure that postgrs and patroni are stopped and disabled
-  ansible.builtin.systemd_service:
-    name: "{{ item }}"
-    state: stopped
-    enabled: false
-    masked: true
-  loop:
-    - patroni
-    - postgresql-18
-
-- name: Ensure that postgrs and patroni are stopped and disabled
-  ansible.builtin.systemd_service:
-    name: percona-patroni
-    state: stopped
-    enabled: false
-
 - name: Create patroni dir
   ansible.builtin.file:
     path: "{{ item }}"
@@ -34,8 +8,9 @@
     group: postgres
     mode: '0755'
   loop:
-    - /etc/patroni
-    - /etc/patroni/ssl
+    - /etc/patroni/
+    - "{{ patroni_patroni_ssl_client }}/"
+    - "{{ patroni_patroni_ssl }}/"
 
 - name: Copy SSL Certificates for Patroni server
   ansible.builtin.copy:
@@ -87,8 +62,8 @@
         path: "{{ item }}"
         state: absent
       loop:
-        - "{{ patroni_postgres_data_dir }}"
-        - "{{ patroni_pgbackup_path }}"
+        - "{{ patroni_postgres_data_dir }}/"
+        - "{{ patroni_pgbackup_path }}/"
 
 - name: Create postgres directories
   ansible.builtin.file:
@@ -98,21 +73,21 @@
     mode: '0700'
     state: directory
   loop:
-    - "{{ patroni_postgres_data_dir }}"
-    - "{{ patroni_pgbackup_path }}"
-    - "{{ patroni_postgres_ssl }}"
+    - "{{ patroni_postgres_data_dir }}/"
+    - "{{ patroni_pgbackup_path }}/"
+    - "{{ patroni_postgres_ssl }}/"
 
 - name: Copy SSL Certificates for Postgres
   ansible.builtin.copy:
-    src: "{{ item }}"
-    dest: "{{ patroni_postgres_ssl }}"
+    src: "{{ item.src }}"
+    dest: "{{ patroni_postgres_ssl }}/{{ item.dest_name }}"
     mode: '0600'
     owner: postgres
     group: postgres
   loop:
-    - "certs/ca/ca.crt"
-    - "certs/postgres/pgsrv-{{ inventory_hostname }}.crt"
-    - "certs/postgres/pgsrv-{{ inventory_hostname }}.key"
+    - { src: "certs/ca/ca.crt", dest_name: "ca.crt" }
+    - { src: "certs/postgres/pgsrv-{{ inventory_hostname }}.crt", dest_name: pgsrv.crt }
+    - { src: "certs/postgres/pgsrv-{{ inventory_hostname }}.key", dest_name: pgsrv.key }
 
 - name: Load softdog module now
   community.general.modprobe:

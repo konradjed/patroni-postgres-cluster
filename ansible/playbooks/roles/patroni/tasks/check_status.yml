@@ -13,8 +13,13 @@
 
 - name: Wait for cluster to be fully formed
   ansible.builtin.uri:
-    url: "http://{{ ansible_host }}:8008/cluster"
+    url: "https://{{ ansible_host }}:8008/cluster"
+    method: GET
     return_content: true
+    client_cert: "{{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt"
+    client_key: "{{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.key"
+    ca_path: "{{ patroni_patroni_ssl }}/ca.crt"
+    validate_certs: true
   register: patroni_cluster
   run_once: true
   until:

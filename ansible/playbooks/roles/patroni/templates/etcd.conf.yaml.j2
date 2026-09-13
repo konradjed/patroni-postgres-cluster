@@ -3,14 +3,14 @@ data-dir: {{ patroni_etcd_data_dir }}
 
 initial-cluster-token: {{ patroni_pg_token }}
 initial-cluster-state: new
-initial-cluster: {% for host in groups['psql'] %}{{ host }}=http://{{ hostvars[host].ansible_host }}:2380{% if not loop.last %},{% endif %}{% endfor +%}
+initial-cluster: {% for host in groups['psql'] %}{{ host }}=https://{{ hostvars[host].ansible_host }}:2380{% if not loop.last %},{% endif %}{% endfor +%}
 
-initial-advertise-peer-urls: http://{{ ansible_host }}:2380
-listen-peer-urls: http://0.0.0.0:2380
-advertise-client-urls: http://{{ ansible_host }}:2379
-listen-client-urls: http://0.0.0.0:2379
+initial-advertise-peer-urls: https://{{ ansible_host }}:2380
+listen-peer-urls: https://0.0.0.0:2380
+advertise-client-urls: https://{{ ansible_host }}:2379
+listen-client-urls: https://0.0.0.0:2379
 
-client-transport-security:
+peer-transport-security:
   trusted-ca-file: {{ patroni_etcd_ssl }}/ca.crt
   client-cert-auth: true
   cert-file: {{ patroni_etcd_ssl }}/etcd-{{ inventory_hostname }}.crt

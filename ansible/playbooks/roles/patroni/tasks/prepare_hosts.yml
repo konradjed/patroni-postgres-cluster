@@ -41,12 +41,41 @@
   args:
     creates: /etc/yum.repos.d/percona-ppg-18-release.repo
 
+- name: Install cluster packages
+  ansible.builtin.dnf:
+    name:
+      - etcd
+      - python3-python-etcd
+      - percona-postgresql18-server
+      - python3-pip
+      - python3-devel
+      - binutils
+      - percona-patroni
+    state: present
+
 # Configure Firewalld
-- name: Start and enable firewalld
-  ansible.builtin.service:
-    name: firewalld
-    state: started
-    enabled: true
+- name: Systemd config
+  ansible.builtin.systemd_service:
+    name: "{{ item.service }}"
+    state: "{{ item.state }}"
+    enabled: "{{ item.enabled }}"
+    masked: "{{ item.masked }}"
+  loop:
+    - { service: "firewalld", enabled: true, state: started, masked: false }
+    - { service: "etcd", enabled: false, state: stopped, masked: false }
+    - { service: "patroni", enabled: false, state: stopped, masked: true }
+    - { service: "postgresql-18", enabled: false, state: stopped, masked: true }
+
+- name: Gather service facts
+  ansible.builtin.service_facts:
+
+- name: Stop existing Percona Patroni
+  ansible.builtin.systemd_service:
+    name: percona-patroni
+    state: stopped
+    enabled: false
+    masked: false
+  when: "'percona-patroni.service' in ansible_facts.services"
 
 - name: Create patroni zone
   ansible.posix.firewalld:
