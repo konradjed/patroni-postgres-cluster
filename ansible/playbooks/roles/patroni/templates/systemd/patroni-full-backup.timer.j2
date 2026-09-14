@@ -1,0 +1,12 @@
+[Unit]
+Description=Run full backup for postgres patroni cluster
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Unit=patroni-backup@full.service
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

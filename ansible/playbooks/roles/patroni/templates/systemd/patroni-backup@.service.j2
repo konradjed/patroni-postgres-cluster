@@ -1,0 +1,10 @@
+[Unit]
+Description=pgBackRest %i backup (leader only)
+After=network-online.target percona-patroni.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=postgres
+Group=postgres
+ExecStart=/usr/local/lib/patroni/run-pgbackrest %i

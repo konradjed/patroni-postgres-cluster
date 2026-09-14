@@ -30,8 +30,54 @@
     group: postgres
     mode: '0600'
 
+- name: Creat patroni backup bin folder
+  ansible.builtin.file:
+    path: "/usr/local/lib/patroni"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Copy backup bin files
+  ansible.builtin.template:
+    src: "pgbackrest-bins/{{ item }}.j2"
+    dest: "/usr/local/lib/patroni/{{ item }}"
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - run-pgbackrest
+    - run-dump
+    - leader-gate
+    - s3-client.py
+
+- name: Load timers to systemd
+  ansible.builtin.template:
+    src: "systemd/{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - patroni-backup@.service
+    - patroni-pgdump.service
+    - patroni-pgdump.timer
+    - patroni-full-backup.timer
+    - patroni-incre-backup.timer
+  notify: Reload systemd
+
 - name: Apply pending handlers before continuing
   ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the backup timers
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - patroni-full-backup.timer
+    - patroni-incre-backup.timer
+    - patroni-pgdump.timer
 
 - name: Start percona-patroni
   ansible.builtin.systemd_service:
@@ -44,7 +90,6 @@
     pgbackrest --stanza={{ patroni_cluster_name }} --no-online stanza-create
   become: true
   become_user: postgres
-  run_once: true
   changed_when: false
 
 - name: Check repo

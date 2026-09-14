@@ -1,0 +1,12 @@
+[Unit]
+Description=Run incremental backup for postgres patroni cluster
+
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=10min
+Unit=patroni-backup@incremental.service
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

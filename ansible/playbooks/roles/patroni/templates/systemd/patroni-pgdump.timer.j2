@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Postgres dump
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Unit=patroni-pgdump.service
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target
