@@ -7,6 +7,10 @@
 - name: Prepare system
   ansible.builtin.include_tasks: prepare_hosts.yml
 
+- name: Wipe existing cluster
+  ansible.builtin.include_tasks: wipe.yml
+  when: 
+
 - name: Configure firewalld
   ansible.builtin.include_tasks: firewalld.yml
 

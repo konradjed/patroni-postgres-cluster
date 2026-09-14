@@ -1,0 +1,47 @@
+---
+
+- name: Wipe postgres data and WAL archive
+  when: patroni_wipe_psql_data_and_arch | bool
+  block:
+    # patronictl remove asks for the cluster name and a confirmation, answers go via stdin
+    - name: Stop Patroni before wiping
+      ansible.builtin.systemd_service:
+        name: percona-patroni
+        state: stopped
+      failed_when: false
+    - name: Check for existing Patroni config
+      ansible.builtin.stat:
+        path: "{{ patroni_patroni_config_yaml }}"
+      register: patroni_config
+      run_once: true
+
+    - name: Remove cluster from DCS
+      ansible.builtin.command: patronictl -c {{ patroni_patroni_config_yaml }} remove {{ patroni_cluster_name }}
+      args:
+        stdin: "{{ patroni_cluster_name }}\nYes I am aware"
+      register: patroni_remove
+      changed_when: patroni_remove.rc == 0
+      run_once: true
+      when: patroni_config.stat.exists
+
+    - name: Remove postgres data and WAL
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ patroni_postgres_data_dir }}/"
+        - "{{ patroni_pgbackup_path }}/"
+
+- name: Reset etcd cluster state
+  when: patroni_etcd_reset | bool
+  block:
+    - name: Stop etcd before wiping
+      ansible.builtin.systemd_service:
+        name: etcd
+        state: stopped
+      failed_when: false
+
+    - name: Remove etcd data directory
+      ansible.builtin.file:
+        path: "{{ patroni_etcd_data_dir }}"
+        state: absent

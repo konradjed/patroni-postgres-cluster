@@ -1,15 +1,5 @@
 ---
 
-# Run with -e patroni_etcd_reset=true on all nodes together (no --limit)
-- name: Reset etcd cluster state
-  when: patroni_etcd_reset | bool
-  block:
-    # Recreated below by "Create etcd data directory"
-    - name: Remove etcd data directory
-      ansible.builtin.file:
-        path: "{{ patroni_etcd_data_dir }}"
-        state: absent
-
 - name: Create etcd data directory
   ansible.builtin.file:
     path: "{{ patroni_etcd_data_dir }}"
