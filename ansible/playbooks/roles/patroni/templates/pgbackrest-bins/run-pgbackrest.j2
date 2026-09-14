@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+readonly STANZA="{{ patroni_cluster_name }}"
+readonly GATE=/usr/local/lib/patroni/leader-gate
+
+case "${1:-}" in
+  full|diff|incr) TYPE="$1" ;;
+  incremental) TYPE=incr ;;
+  *) echo "usage: $(basename "$0") full|diff|incr" >&2; exit 2 ;;
+esac
+
+"$GATE"
+case $? in
+  0) ;;
+  1) echo "Not the leader; no backup taken on this node."; exit 0 ;;
+  *) echo "Refusing to run: leadership could not be determined." >&2; exit 1 ;;
+esac
+
+echo "Leader confirmed; taking a $TYPE backup of stanza $STANZA."
+exec pgbackrest --stanza="$STANZA" --type="$TYPE" backup

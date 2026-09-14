@@ -1,0 +1,51 @@
+#!/usr/bin/env python3
+import configparser
+import sys
+
+import boto3
+from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
+
+CONF = "/etc/pgbackrest/pgbackrest.conf"
+USAGE = "usage: s3-client.py put FILE KEY | list PREFIX | delete KEY"
+
+
+def client():
+    cfg = configparser.ConfigParser(interpolation=None, strict=False)
+    cfg.read(CONF)
+    g = cfg["global"]
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=f"https://{g['repo1-s3-endpoint']}:{g['repo1-storage-port']}",
+        aws_access_key_id=g["repo1-s3-key"],
+        aws_secret_access_key=g["repo1-s3-key-secret"],
+        region_name=g["repo1-s3-region"],
+        verify=g["repo1-storage-ca-file"],
+        config=Config(s3={"addressing_style": "path"}),
+    )
+    return s3, g["repo1-s3-bucket"]
+
+
+def main(argv):
+    if len(argv) < 3:
+        sys.exit(USAGE)
+    s3, bucket = client()
+    cmd = argv[1]
+    if cmd == "put" and len(argv) == 4:
+        s3.upload_file(argv[2], bucket, argv[3])
+    elif cmd == "list":
+        pages = s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=argv[2])
+        for page in pages:
+            for obj in page.get("Contents", []):
+                print(obj["Key"])
+    elif cmd == "delete":
+        s3.delete_object(Bucket=bucket, Key=argv[2])
+    else:
+        sys.exit(USAGE)
+
+
+if __name__ == "__main__":
+    try:
+        main(sys.argv)
+    except (BotoCoreError, ClientError, KeyError, OSError) as exc:
+        sys.exit(f"s3-client: {exc}")

@@ -12,6 +12,7 @@ patroni_firewall_ports:
   - 8008
 patroni_pg_token: PostgreSQL_HA_Cluster
 patroni_cluster_name: pg_cluster
+patroni_app_db_name: app
 patroni_s3_prefix: /pgbackrest
 patroni_s3_bucket_name: patroni-bucket
 patroni_s3_endpoint: 192.168.172.140
@@ -24,12 +25,16 @@ patroni_on_boot_incr_backup: 5min
 patroni_interval_incr_backup: 2min
 patroni_on_boot_dump: 7min
 patroni_interval_dump: 15min
+patroni_dump_retention: 3
+patroni_dump_prefix: pgdump
+patroni_dump_pass_file_location: /etc/pgbackrest/dump.pass
 
 patroni_replicator_password: ""
 patroni_postgres_password: ""
 patroni_minio_key: ""
 patroni_minio_secret: ""
 patroni_repo_cipher_pass: ""
+patroni_dump_cipher_pass: ""
 
 # CRITICAL
 # Wipe etcd data dir on all nodes before start (for a failed bootstrap). Destroys DCS state!

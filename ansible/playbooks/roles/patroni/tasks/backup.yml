@@ -29,6 +29,8 @@
     owner: postgres
     group: postgres
     mode: '0600'
+  no_log: true
+  diff: false
 
 - name: Creat patroni backup bin folder
   ansible.builtin.file:
@@ -88,6 +90,16 @@
   become: true
   become_user: postgres
   changed_when: false
+
+- name: Dump passphrase
+  ansible.builtin.copy:
+    content: "{{ patroni_dump_cipher_pass }}\n"
+    dest: "{{ patroni_dump_pass_file_location }}"
+    owner: postgres
+    group: postgres
+    mode: '0600'
+  no_log: true
+  diff: false
 
 - name: Enable and start the backup timers
   ansible.builtin.systemd_service:

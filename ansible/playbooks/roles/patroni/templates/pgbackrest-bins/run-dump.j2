@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+readonly DB="{{ patroni_app_db_name }}"
+readonly PREFIX="{{ patroni_dump_prefix }}"
+readonly KEEP={{ patroni_dump_retention }}
+readonly PASSFILE="{{ patroni_dump_pass_file_location }}"
+readonly GATE=/usr/local/lib/patroni/leader-gate
+readonly S3_CLIENT=/usr/local/lib/patroni/s3-client.py
+
+"$GATE"
+case $? in
+  0) ;;
+  1) echo "Not the leader; no dump taken on this node."; exit 0 ;;
+  *) echo "Refusing to run: leadership could not be determined." >&2; exit 1 ;;
+esac
+
+workdir="$(mktemp -d)"
+trap 'rm -rf "$workdir"' EXIT
+stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+readonly OBJECT="$PREFIX/${DB}-${stamp}.dump.enc"
+
+echo "Leader confirmed; dumping $DB."
+pg_dump --format=custom --dbname="$DB" --username=dumper --file="$workdir/dump" \
+  || { echo "pg_dump failed; nothing uploaded." >&2; exit 1; }
+
+openssl enc -aes-256-cbc -pbkdf2 -salt \
+  -in "$workdir/dump" -out "$workdir/dump.enc" -pass "file:$PASSFILE" \
+  || { echo "encryption failed; nothing uploaded." >&2; exit 1; }
+
+echo "Uploading $OBJECT ($(stat -c%s "$workdir/dump.enc") bytes)."
+"$S3_CLIENT" put "$workdir/dump.enc" "$OBJECT" || { echo "upload failed." >&2; exit 1; }
+
+keys="$("$S3_CLIENT" list "$PREFIX/" | sort)"
+total="$(printf '%s\n' "$keys" | grep -c . || true)"
+if (( total > KEEP )); then
+  printf '%s\n' "$keys" | head -n "$(( total - KEEP ))" | while IFS= read -r old; do
+    [[ -z "$old" ]] && continue
+    echo "Expiring old dump: $old"
+    "$S3_CLIENT" delete "$old" || true
+  done
+fi
+
+echo "Dump complete: $OBJECT"

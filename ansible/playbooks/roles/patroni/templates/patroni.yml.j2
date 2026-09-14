@@ -60,7 +60,7 @@ bootstrap:
               restore_command: "pgbackrest --stanza={{ patroni_cluster_name }} archive-get %f %p"
           pg_hba:
               - local all all          peer
-              - local app dumper peer map=dumpmap
+              - local {{ patroni_app_db_name }} dumper peer map=dumpmap
               - hostssl all all 127.0.0.1/32 scram-sha-256
               - hostssl all all ::1/128 scram-sha-256
               - hostssl replication replicator 127.0.0.1/32 scram-sha-256
@@ -71,7 +71,7 @@ bootstrap:
               - hostssl postgres postgres {{ hostvars[host].ansible_host }}/32 scram-sha-256
 {% endfor %}
 {% for addr in patroni_app_cidrs %}
-              - hostssl app app {{ addr }} scram-sha-256
+              - hostssl {{ patroni_app_db_name }} app_user {{ addr }} scram-sha-256
 {% endfor %}
           pg_ident:
               - dumpmap postgres dumper

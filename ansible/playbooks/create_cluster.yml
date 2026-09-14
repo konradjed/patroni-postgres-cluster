@@ -5,3 +5,36 @@
   any_errors_fatal: true
   roles:
     - role: patroni
+
+  post_tasks:
+    - name: Are you leader
+      ansible.builtin.command: /usr/local/lib/patroni/leader-gate
+      register: leader
+      changed_when: false
+      failed_when: leader.rc == 2
+
+    - name: Create example database
+      when: leader.rc == 0
+      block:
+
+        - name: Copy SQL file
+          ansible.builtin.template:
+            src: appdb.sql.j2
+            dest: /var/lib/pgsql/appdb.sql
+            owner: postgres
+            group: postgres
+            mode: '0600'
+          no_log: true
+
+        - name: Load SQL file
+          ansible.builtin.command: >-
+            /usr/pgsql-18/bin/psql --no-psqlrc --set=ON_ERROR_STOP=1
+            --file=/var/lib/pgsql/appdb.sql
+          become_user: postgres
+          changed_when: true
+          no_log: true
+      always:
+        - name: clean up
+          ansible.builtin.file:
+            path: /var/lib/pgsql/appdb.sql
+            state: absent

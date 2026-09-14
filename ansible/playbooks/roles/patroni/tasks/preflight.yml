@@ -6,6 +6,7 @@
       - patroni_postgres_password | default('') | length > 0
       - patroni_replicator_password | default('') | length > 0
       - patroni_repo_cipher_pass | default('') | length > 0
+      - patroni_dump_cipher_pass | default('') | length > 0
       - patroni_minio_key | default('') | length > 0
       - patroni_minio_secret | default('') | length > 0
     fail_msg: >-

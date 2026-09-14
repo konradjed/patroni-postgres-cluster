@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+readonly URL="https://127.0.0.1:8008/patroni"
+readonly CA="{{ patroni_ca_cert_dir }}/ca.crt"
+readonly CERT="{{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt"
+readonly KEY="{{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.key"
+readonly BODY="$(mktemp)"
+trap 'rm -f "$BODY"' EXIT
+
+code="$(curl -s -o "$BODY" -w '%{http_code}' --max-time 5 \
+  --cacert "$CA" --cert "$CERT" --key "$KEY" "$URL" 2>/dev/null || true)"
+
+if [[ "${code:-000}" != "200" ]]; then
+  echo "leader-gate: $URL answered '${code:-000}', not 200; leadership unknown" >&2
+  exit 2
+fi
+
+role="$(python3 -c 'import json,sys; print(json.load(sys.stdin).get("role",""))' < "$BODY" 2>/dev/null)"
+case "$role" in
+  primary|master|standby_leader) exit 0 ;;
+  replica|sync_standby|quorum_standby|standby) exit 1 ;;
+  *) echo "leader-gate: unrecognised role '${role:-<none>}'" >&2; exit 2 ;;
+esac
