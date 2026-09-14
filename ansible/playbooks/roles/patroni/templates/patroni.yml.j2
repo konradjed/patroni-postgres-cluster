@@ -69,7 +69,9 @@ bootstrap:
 {% for host in groups['psql'] %}
               - hostssl postgres postgres {{ hostvars[host].ansible_host }}/32 scram-sha-256
 {% endfor %}
-              - hostssl app app {{ patroni_app_addr }}/32 scram-sha-256
+{% for addr in patroni_app_cidrs %}
+              - hostssl app app {{ addr }} scram-sha-256
+{% endfor %}
               
 
   initdb:
