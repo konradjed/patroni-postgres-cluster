@@ -8,6 +8,10 @@ servers:
           ansible_host: 192.168.172.102
         pg3:
           ansible_host: 192.168.172.103
+    backup:
+      hosts:
+        bak1:
+          ansible_host: 192.168.172.150
 
 test:
   hosts:

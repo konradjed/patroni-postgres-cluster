@@ -1,0 +1,37 @@
+---
+
+- name: Create pgBackRest directory
+  ansible.builtin.file:
+    path: "{{ patroni_pgbackrest_data_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0750'
+
+- name: Back up pgBackRest configuration
+  ansible.builtin.copy:
+    src: /etc/pgbackrest/pgbackrest.conf
+    dest: /etc/pgbackrest/pgbackrest.conf.bak
+    remote_src: true
+    owner: root
+    group: root
+    mode: preserve
+    force: false
+
+- name: Copy template pgbackrest service
+  ansible.builtin.template:
+    src: pgbackrest.service.j2
+    dest: /etc/systemd/system/pgbackrest.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Apply pending handlers before continuing
+  ansible.builtin.meta: flush_handlers
+
+- name: Start pgbackrest
+  ansible.builtin.systemd_service:
+    name: pgbackrest.service
+    state: started
+    enabled: true

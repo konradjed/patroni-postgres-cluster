@@ -1,0 +1,21 @@
+---
+
+- name: Verify required passwords are provided
+  ansible.builtin.assert:
+    that:
+      - patroni_postgres_password | default('') | length > 0
+      - patroni_replicator_password | default('') | length > 0
+    fail_msg: >-
+      Please set patroni_postgres_password and patroni_replicator_password.
+    success_msg: "Passwords have been set."
+
+- name: Verify supported operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts['distribution'] == 'Rocky'
+      - ansible_facts['distribution_major_version'] == '9'
+      - ansible_facts['service_mgr'] == 'systemd'
+    fail_msg: >-
+      Unsupported system.
+      This role requires Rocky Linux 9 with systemd.
+    success_msg: "Supported system: Rocky Linux 9 with systemd."

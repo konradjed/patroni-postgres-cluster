@@ -1,25 +1,5 @@
 ---
 
-- name: Verify required passwords are provided
-  ansible.builtin.assert:
-    that:
-      - patroni_postgres_password | default('') | length > 0
-      - patroni_replicator_password | default('') | length > 0
-    fail_msg: >-
-      Please set patroni_postgres_password and patroni_replicator_password.
-    success_msg: "Passwords have been set."
-
-- name: Verify supported operating system
-  ansible.builtin.assert:
-    that:
-      - ansible_facts['distribution'] == 'Rocky'
-      - ansible_facts['distribution_major_version'] == '9'
-      - ansible_facts['service_mgr'] == 'systemd'
-    fail_msg: >-
-      Unsupported system.
-      This role requires Rocky Linux 9 with systemd.
-    success_msg: "Supported system: Rocky Linux 9 with systemd."
-
 - name: Set hostname
   ansible.builtin.hostname:
     name: "{{ inventory_hostname }}"
@@ -32,7 +12,7 @@
     regexp: "[[:space:]]{{ item }}$"
     insertafter: EOF
     state: present
-  loop: "{{ groups['psql'] }}"
+  loop: "{{ groups[patroni_inventory_group] }}"
 
 - name: Install repository prerequisites
   ansible.builtin.dnf:
@@ -93,6 +73,7 @@
       - python3-devel
       - binutils
       - percona-patroni
+      - percona-pgbackrest
     state: present
   register: cluster_packages
   retries: 5
@@ -122,69 +103,3 @@
     enabled: false
     masked: false
   when: "'percona-patroni.service' in ansible_facts.services"
-
-- name: Create patroni zone
-  ansible.posix.firewalld:
-    zone: "{{ patroni_firewall_zone }}"
-    state: present
-    permanent: true
-
-- name: Set default-deny
-  ansible.posix.firewalld:
-    zone: "{{ patroni_firewall_zone }}"
-    target: DROP
-    state: present
-    permanent: true
-    immediate: false
-
-- name: Reload firewalld
-  ansible.builtin.command: firewall-cmd --reload
-
-# Must be allowed before the source binding, otherwise SSH from patroni_subnet can be rejected
-- name: Allow SSH in patroni zone
-  ansible.posix.firewalld:
-    zone: "{{ patroni_firewall_zone }}"
-    rich_rule: >-
-      rule family="ipv4" source address="{{ patroni_management_cidr }}"
-      service name="ssh" accept
-    state: enabled
-    permanent: true
-    immediate: true
-
-- name: Collect nodes ip addresses
-  ansible.builtin.set_fact:
-    patroni_nodes_ips: "{{ groups['psql'] | map('extract', hostvars, 'ansible_host') | list }}"
-
-- name: Allow on traffic between postgres nodes
-  ansible.posix.firewalld:
-    zone: "{{ patroni_firewall_zone }}"
-    rich_rule: >-
-      rule family="ipv4" source address="{{ item.0 }}/32"
-      port port="{{ item.1 }}" protocol="tcp" accept
-    state: enabled
-    permanent: true
-    immediate: true
-  with_nested:
-    - "{{ patroni_nodes_ips }}"
-    - "{{ patroni_firewall_ports }}"
-
-- name: Allow on access to PostgreSQL
-  ansible.posix.firewalld:
-    zone: "{{ patroni_firewall_zone }}"
-    rich_rule: >-
-      rule family="ipv4" source address="{{ item }}"
-      port port="5432" protocol="tcp" accept
-    state: enabled
-    permanent: true
-    immediate: true
-  loop: "{{ patroni_app_cidrs }}"
-
-- name: Check default zone
-  ansible.builtin.command: firewall-cmd --get-default-zone
-  register: patroni_default_zone
-  changed_when: false
-
-- name: Set default zone
-  ansible.builtin.command: firewall-cmd --set-default-zone={{ patroni_firewall_zone }}
-  when: patroni_default_zone.stdout | trim != patroni_firewall_zone
-  changed_when: true

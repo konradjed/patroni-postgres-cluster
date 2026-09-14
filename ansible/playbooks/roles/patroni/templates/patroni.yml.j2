@@ -17,7 +17,7 @@ ctl:
     insecure: false
 
 etcd3:
-    hosts: {% for host in groups['psql'] %}{{ hostvars[host].ansible_host }}:2379{% if not loop.last %},{% endif %}{% endfor +%}
+    hosts: {% for host in groups[patroni_inventory_group] %}{{ hostvars[host].ansible_host }}:2379{% if not loop.last %},{% endif %}{% endfor +%}
     protocol: https
     cacert: {{ patroni_patroni_ssl_client }}/ca.crt
     cert: {{ patroni_patroni_ssl_client }}/dcsclient-{{ inventory_hostname }}.crt
@@ -63,10 +63,10 @@ bootstrap:
               - hostssl all all 127.0.0.1/32 scram-sha-256
               - hostssl all all ::1/128 scram-sha-256
               - hostssl replication replicator 127.0.0.1/32 scram-sha-256
-{% for host in groups['psql'] %}
+{% for host in groups[patroni_inventory_group] %}
               - hostssl replication replicator {{ hostvars[host].ansible_host }}/32 scram-sha-256
 {% endfor %}
-{% for host in groups['psql'] %}
+{% for host in groups[patroni_inventory_group] %}
               - hostssl postgres postgres {{ hostvars[host].ansible_host }}/32 scram-sha-256
 {% endfor %}
 {% for addr in patroni_app_cidrs %}

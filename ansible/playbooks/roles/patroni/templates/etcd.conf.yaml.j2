@@ -3,7 +3,7 @@ data-dir: {{ patroni_etcd_data_dir }}
 
 initial-cluster-token: {{ patroni_pg_token }}
 initial-cluster-state: new
-initial-cluster: {% for host in groups['psql'] %}{{ host }}=https://{{ hostvars[host].ansible_host }}:2380{% if not loop.last %},{% endif %}{% endfor +%}
+initial-cluster: {% for host in groups[patroni_inventory_group] %}{{ host }}=https://{{ hostvars[host].ansible_host }}:2380{% if not loop.last %},{% endif %}{% endfor +%}
 
 initial-advertise-peer-urls: https://{{ ansible_host }}:2380
 listen-peer-urls: https://0.0.0.0:2380

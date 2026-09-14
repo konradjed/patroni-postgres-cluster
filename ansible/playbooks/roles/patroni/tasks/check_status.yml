@@ -25,7 +25,7 @@
   until:
     - patroni_cluster.json is defined
     - patroni_cluster.json.members | selectattr('role', 'equalto', 'leader') | list | length == 1
-    - patroni_cluster.json.members | selectattr('state', 'equalto', 'streaming') | list | length == (groups['psql'] | length - 1)
+    - patroni_cluster.json.members | selectattr('state', 'equalto', 'streaming') | list | length == (groups[patroni_inventory_group] | length - 1)
     - patroni_cluster.json.members | selectattr('role', 'in', ['sync_standby', 'quorum_standby']) | list | length >= 1
   retries: 60
   delay: 5

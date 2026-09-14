@@ -2,7 +2,6 @@
 ---
 # defaults file for patroni
 patroni_app_cidrs: []
-patroni_firewall_interfaces: []
 patroni_management_cidr: ""
 patroni_inventory_group: psql
 patroni_firewall_zone: patroni
@@ -15,6 +14,8 @@ patroni_pg_token: PostgreSQL_HA_Cluster
 patroni_cluster_name: pg_cluster
 patroni_replicator_password: ""
 patroni_postgres_password: ""
+
+# CRITICAL
 # Wipe etcd data dir on all nodes before start (for a failed bootstrap). Destroys DCS state!
 patroni_etcd_reset: false
 patroni_wipe_psql_data_and_arch: false

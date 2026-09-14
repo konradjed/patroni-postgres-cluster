@@ -2,3 +2,4 @@ patroni_cluster_name: postgres_cluster
 patroni_management_cidr: "192.168.172.1"
 patroni_app_cidrs:
   - 192.168.172.150/32
+patroni_inventory_group: psql

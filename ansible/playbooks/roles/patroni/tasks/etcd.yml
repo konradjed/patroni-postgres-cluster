@@ -79,3 +79,6 @@
     name: etcd
     state: started
     enabled: true
+  notify:
+    - Etcd status
+    - Check etcd cluster health
