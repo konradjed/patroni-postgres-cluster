@@ -11,14 +11,14 @@ advertise-client-urls: https://{{ ansible_host }}:2379
 listen-client-urls: https://0.0.0.0:2379
 
 peer-transport-security:
-  trusted-ca-file: {{ patroni_etcd_ssl }}/ca.crt
+  trusted-ca-file: {{ patroni_ca_cert_dir }}/ca.crt
   client-cert-auth: true
   cert-file: {{ patroni_etcd_ssl }}/etcd-{{ inventory_hostname }}.crt
   key-file: {{ patroni_etcd_ssl }}/etcd-{{ inventory_hostname }}.key
 
 client-transport-security:
   client-cert-auth: true
-  trusted-ca-file: {{ patroni_etcd_ssl }}/ca.crt
+  trusted-ca-file: {{ patroni_ca_cert_dir }}/ca.crt
   cert-file: {{ patroni_etcd_ssl }}/etcd-{{ inventory_hostname }}.crt
   key-file: {{ patroni_etcd_ssl }}/etcd-{{ inventory_hostname }}.key
 

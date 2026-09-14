@@ -103,3 +103,19 @@
     enabled: false
     masked: false
   when: "'percona-patroni.service' in ansible_facts.services"
+
+- name: Create CA directory
+  ansible.builtin.file:
+    path: "{{ patroni_ca_cert_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Import CA certificate
+  ansible.builtin.copy:
+    src: certs/ca/ca.crt
+    dest: "{{ patroni_ca_cert_dir }}/ca.crt"
+    owner: root
+    group: root
+    mode: '0644'

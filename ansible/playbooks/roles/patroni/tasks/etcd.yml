@@ -49,7 +49,6 @@
     group: etcd
     mode: '0600'
   loop:
-    - "certs/ca/ca.crt"
     - "certs/etcd/etcd-{{ inventory_hostname }}.crt"
     - "certs/etcd/etcd-{{ inventory_hostname }}.key"
 

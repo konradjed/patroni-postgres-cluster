@@ -7,19 +7,19 @@ restapi:
     connect_address: {{ ansible_host }}:8008
     certfile: {{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt
     keyfile: {{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.key
-    cafile: {{ patroni_patroni_ssl }}/ca.crt
+    cafile: {{ patroni_ca_cert_dir }}/ca.crt
     verify_client: required
 
 ctl:
     certfile: {{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt
     keyfile: {{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.key
-    cacert: {{ patroni_patroni_ssl }}/ca.crt
+    cacert: {{ patroni_ca_cert_dir }}/ca.crt
     insecure: false
 
 etcd3:
     hosts: {% for host in groups[patroni_inventory_group] %}{{ hostvars[host].ansible_host }}:2379{% if not loop.last %},{% endif %}{% endfor +%}
     protocol: https
-    cacert: {{ patroni_patroni_ssl_client }}/ca.crt
+    cacert: {{ patroni_ca_cert_dir }}/ca.crt
     cert: {{ patroni_patroni_ssl_client }}/dcsclient-{{ inventory_hostname }}.crt
     key: {{ patroni_patroni_ssl_client }}/dcsclient-{{ inventory_hostname }}.key
 
@@ -43,7 +43,7 @@ bootstrap:
               ssl_min_protocol_version: "TLSv1.3"
               ssl_cert_file: {{ patroni_postgres_ssl }}/pgsrv.crt
               ssl_key_file: {{ patroni_postgres_ssl }}/pgsrv.key
-              ssl_ca_file: {{ patroni_postgres_ssl }}/ca.crt
+              ssl_ca_file: {{ patroni_ca_cert_dir }}/ca.crt
               synchronous_commit: "on"
               password_encryption: scram-sha-256
               wal_level: replica
@@ -91,7 +91,7 @@ postgresql:
             username: replicator
             password: {{ patroni_vars_replicator_password | to_json }}
             sslmode: verify-full
-            sslrootcert: {{ patroni_postgres_ssl }}/ca.crt
+            sslrootcert: {{ patroni_ca_cert_dir }}/ca.crt
         superuser:
             username: postgres
             password: {{ patroni_vars_postgres_password | to_json }}

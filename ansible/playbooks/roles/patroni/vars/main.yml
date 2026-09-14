@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT-0
 ---
 # vars file for patroni
+patroni_ca_cert_dir: /etc/pki/patroni
 patroni_etcd_data_dir: /var/lib/etcd
 patroni_etcd_ssl: /etc/etcd/ssl
 patroni_patroni_config_yaml: /etc/patroni/patroni.yml

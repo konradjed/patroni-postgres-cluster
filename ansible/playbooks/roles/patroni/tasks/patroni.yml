@@ -20,7 +20,6 @@
     owner: postgres
     group: postgres
   loop:
-    - "certs/ca/ca.crt"
     - "certs/patroni/patroni-{{ inventory_hostname }}.crt"
     - "certs/patroni/patroni-{{ inventory_hostname }}.key"
 
@@ -32,7 +31,6 @@
     owner: postgres
     group: postgres
   loop:
-    - "certs/ca/ca.crt"
     - "certs/dcs-client/dcsclient-{{ inventory_hostname }}.crt"
     - "certs/dcs-client/dcsclient-{{ inventory_hostname }}.key"
 
@@ -85,7 +83,6 @@
     owner: postgres
     group: postgres
   loop:
-    - { src: "certs/ca/ca.crt", dest_name: "ca.crt" }
     - { src: "certs/postgres/pgsrv-{{ inventory_hostname }}.crt", dest_name: pgsrv.crt }
     - { src: "certs/postgres/pgsrv-{{ inventory_hostname }}.key", dest_name: pgsrv.key }
 
