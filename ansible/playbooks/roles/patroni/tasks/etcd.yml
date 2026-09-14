@@ -78,6 +78,19 @@
     name: etcd
     state: started
     enabled: true
-  notify:
-    - Etcd status
-    - Check etcd cluster health
+
+- name: Check etcd cluster health
+  ansible.builtin.command: |
+    etcdctl \
+      --endpoints=https://127.0.0.1:2379 \
+      --cacert={{ patroni_ca_cert_dir }}/ca.crt \
+      --cert={{ patroni_etcd_ssl }}/etcd-{{ inventory_hostname }}.crt \
+      --key={{ patroni_etcd_ssl }}/etcd-{{ inventory_hostname }}.key \
+      endpoint health \
+      --cluster
+  register: patroni_etcd_health
+  until: patroni_etcd_health.rc == 0
+  retries: 12
+  delay: 5
+  changed_when: false
+  run_once: true

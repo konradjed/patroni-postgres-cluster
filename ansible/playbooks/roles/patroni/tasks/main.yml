@@ -1,8 +1,14 @@
 # SPDX-License-Identifier: MIT-0
 ---
 # tasks file for patroni
+- name: Preflight
+  ansible.builtin.include_tasks: preflight.yml
+
 - name: Prepare system
   ansible.builtin.include_tasks: prepare_hosts.yml
+
+- name: Configure firewalld
+  ansible.builtin.include_tasks: firewalld.yml
 
 - name: Configure Etcd
   ansible.builtin.include_tasks: etcd.yml
