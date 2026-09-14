@@ -3,7 +3,6 @@
 - name: Wipe postgres data and WAL archive
   when: patroni_wipe_existing_cluster | bool
   block:
-    # patronictl remove asks for the cluster name and a confirmation, answers go via stdin
     - name: Stop Patroni before wiping
       ansible.builtin.systemd_service:
         name: percona-patroni
@@ -20,6 +19,7 @@
       args:
         stdin: "{{ patroni_cluster_name }}\nYes I am aware"
       register: patroni_remove
+      failed_when: false
       changed_when: patroni_remove.rc == 0
       run_once: true
       when: patroni_config.stat.exists

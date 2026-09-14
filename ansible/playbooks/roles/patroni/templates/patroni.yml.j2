@@ -55,11 +55,12 @@ bootstrap:
               logging_collector: 'on'
               max_wal_size: '10GB'
               archive_mode: "on"
-              archive_timeout: 600s
-              archive_command: "cp -f %p {{ patroni_pgbackup_path }}/%f"
-              restore_command: "cp {{ patroni_pgbackup_path }}/%f %p"
+              archive_timeout: 60s
+              archive_command: "pgbackrest --stanza={{ patroni_cluster_name }} archive-push %p"
+              restore_command: "pgbackrest --stanza={{ patroni_cluster_name }} archive-get %f %p"
           pg_hba:
               - local all all          peer
+              - local app dumper peer map=dumpmap
               - hostssl all all 127.0.0.1/32 scram-sha-256
               - hostssl all all ::1/128 scram-sha-256
               - hostssl replication replicator 127.0.0.1/32 scram-sha-256
@@ -72,6 +73,8 @@ bootstrap:
 {% for addr in patroni_app_cidrs %}
               - hostssl app app {{ addr }} scram-sha-256
 {% endfor %}
+          pg_ident:
+              - dumpmap postgres dumper
               
 
   initdb:

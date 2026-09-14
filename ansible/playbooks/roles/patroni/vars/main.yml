@@ -17,4 +17,5 @@ patroni_postgres_bin: /usr/pgsql-18/bin
 patroni_postgres_ssl: /var/lib/pgsql/18/ssl
 patroni_vars_replicator_password: "{{ patroni_replicator_password }}"
 patroni_vars_postgres_password: "{{ patroni_postgres_password }}"
-patroni_pgbackrest_dir: /var/lib/pgbackrest
+patroni_pgbackrest_data_dir: /var/lib/pgbackrest
+patroni_pgbackrest_log_dir: /var/log/pgbackrest

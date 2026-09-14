@@ -1,14 +1,18 @@
 ---
 
-- name: Create pgBackRest directory
+- name: Ensure req dirs exists and have right permissions
   ansible.builtin.file:
-    path: "{{ patroni_pgbackrest_data_dir }}"
+    path: "{{ item }}"
     state: directory
     owner: postgres
     group: postgres
     mode: '0750'
+  loop:
+    - /etc/pgbackrest
+    - "{{ patroni_pgbackrest_data_dir }}"
+    - "{{ patroni_pgbackrest_log_dir }}"
 
-- name: Back up pgBackRest configuration
+- name: Backup pgBackRest configuration
   ansible.builtin.copy:
     src: /etc/pgbackrest/pgbackrest.conf
     dest: /etc/pgbackrest/pgbackrest.conf.bak
@@ -18,20 +22,34 @@
     mode: preserve
     force: false
 
-- name: Copy template pgbackrest service
+- name: Copy pgbackrest config file
   ansible.builtin.template:
-    src: pgbackrest.service.j2
-    dest: /etc/systemd/system/pgbackrest.service
-    owner: root
-    group: root
-    mode: '0644'
-  notify: Reload systemd
+    src: pgbackrest.conf.j2
+    dest: /etc/pgbackrest/pgbackrest.conf
+    owner: postgres
+    group: postgres
+    mode: '0600'
 
 - name: Apply pending handlers before continuing
   ansible.builtin.meta: flush_handlers
 
-- name: Start pgbackrest
+- name: Start percona-patroni
   ansible.builtin.systemd_service:
-    name: pgbackrest.service
+    name: percona-patroni
     state: started
     enabled: true
+
+- name: Create stanza
+  ansible.builtin.command: >-
+    pgbackrest --stanza={{ patroni_cluster_name }} --no-online stanza-create
+  become: true
+  become_user: postgres
+  run_once: true
+  changed_when: false
+
+- name: Check repo
+  ansible.builtin.command: >-
+    pgbackrest --stanza={{ patroni_cluster_name }} check
+  become: true
+  become_user: postgres
+  changed_when: false
