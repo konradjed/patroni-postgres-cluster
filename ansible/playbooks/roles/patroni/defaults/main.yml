@@ -1,8 +1,16 @@
 # SPDX-License-Identifier: MIT-0
 ---
 # defaults file for patroni
-patroni_app_addr: 192.168.172.150
-patroni_subnet: 192.168.172.0/24
+patroni_app_cidrs: []
+patroni_firewall_interfaces: []
+patroni_management_cidr: ""
+patroni_inventory_group: psql
+patroni_firewall_zone: patroni
+patroni_firewall_ports:
+  - 2379
+  - 2380
+  - 5432
+  - 8008
 patroni_pg_token: PostgreSQL_HA_Cluster
 patroni_cluster_name: pg_cluster
 patroni_replicator_password: ""
