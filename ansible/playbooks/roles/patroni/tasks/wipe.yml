@@ -1,7 +1,7 @@
 ---
 
 - name: Wipe postgres data and WAL archive
-  when: patroni_wipe_psql_data_and_arch | bool
+  when: patroni_wipe_existing_cluster | bool
   block:
     # patronictl remove asks for the cluster name and a confirmation, answers go via stdin
     - name: Stop Patroni before wiping
@@ -32,9 +32,6 @@
         - "{{ patroni_postgres_data_dir }}/"
         - "{{ patroni_pgbackup_path }}/"
 
-- name: Reset etcd cluster state
-  when: patroni_etcd_reset | bool
-  block:
     - name: Stop etcd before wiping
       ansible.builtin.systemd_service:
         name: etcd

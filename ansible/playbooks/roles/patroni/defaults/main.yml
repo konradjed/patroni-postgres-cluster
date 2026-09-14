@@ -17,5 +17,4 @@ patroni_postgres_password: ""
 
 # CRITICAL
 # Wipe etcd data dir on all nodes before start (for a failed bootstrap). Destroys DCS state!
-patroni_etcd_reset: false
-patroni_wipe_psql_data_and_arch: false
+patroni_wipe_existing_cluster: false
