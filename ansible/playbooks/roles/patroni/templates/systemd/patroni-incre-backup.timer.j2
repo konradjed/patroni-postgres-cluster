@@ -2,9 +2,9 @@
 Description=Run incremental backup for postgres patroni cluster
 
 [Timer]
-OnBootSec=10min
-OnUnitActiveSec=10min
-Unit=patroni-backup@incremental.service
+OnBootSec={{ patroni_on_boot_incr_backup }}
+OnUnitActiveSec={{ patroni_interval_incr_backup }}
+Unit=patroni-backup@incr.service
 AccuracySec=1s
 Persistent=false
 

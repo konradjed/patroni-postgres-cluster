@@ -69,16 +69,6 @@
 - name: Apply pending handlers before continuing
   ansible.builtin.meta: flush_handlers
 
-- name: Enable and start the backup timers
-  ansible.builtin.systemd_service:
-    name: "{{ item }}"
-    enabled: true
-    state: started
-  loop:
-    - patroni-full-backup.timer
-    - patroni-incre-backup.timer
-    - patroni-pgdump.timer
-
 - name: Start percona-patroni
   ansible.builtin.systemd_service:
     name: percona-patroni
@@ -98,3 +88,13 @@
   become: true
   become_user: postgres
   changed_when: false
+
+- name: Enable and start the backup timers
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - patroni-full-backup.timer
+    - patroni-incre-backup.timer
+    - patroni-pgdump.timer

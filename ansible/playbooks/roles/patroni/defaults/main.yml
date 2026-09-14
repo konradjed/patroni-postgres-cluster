@@ -18,6 +18,13 @@ patroni_s3_endpoint: 192.168.172.140
 patroni_s3_port: 443
 patroni_s3_region: eu-central-1
 
+patroni_on_boot_full_backup: 3min
+patroni_interval_full_backup: 30min
+patroni_on_boot_incr_backup: 5min
+patroni_interval_incr_backup: 2min
+patroni_on_boot_dump: 7min
+patroni_interval_dump: 15min
+
 patroni_replicator_password: ""
 patroni_postgres_password: ""
 patroni_minio_key: ""

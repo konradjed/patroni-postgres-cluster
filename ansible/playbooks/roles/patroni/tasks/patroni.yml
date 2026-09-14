@@ -104,3 +104,6 @@
     group: root
     mode: '0644'
   notify: Reload systemd
+
+# Patroni service starts in backup.yml
+# After backup configuration
