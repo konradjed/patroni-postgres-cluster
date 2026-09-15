@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root_source="$(findmnt -nro SOURCE /)"
+root_disks=("$root_source")
+while read -r root_disk; do
+    root_disks+=("$root_disk")
+done < <(
+    lsblk -srpno NAME,TYPE "$root_source" 2>/dev/null |
+        awk '$2 == "disk" { print $1 }' || true
+)
+
+printf '%-8s %-12s %s\n' 'SIZE' 'DEVICE' 'DEVICE ID'
+
+while read -r device size type; do
+    [[ "$type" == "disk" ]] || continue
+
+    for root_disk in "${root_disks[@]}"; do
+        [[ "$device" == "$root_disk" ]] && continue 2
+    done
+
+    ids=""
+    for link in /dev/disk/by-id/*; do
+        [[ -L "$link" ]] || continue
+        [[ "${link##*/}" == *-part* ]] && continue
+        [[ "$(readlink -f "$link")" == "$device" ]] || continue
+        ids+="${ids:+, }$link"
+    done
+
+    printf '%-8s %-12s %s\n' "$size" "$device" "${ids:--}"
+done < <(lsblk -dnpo NAME,SIZE,TYPE)
