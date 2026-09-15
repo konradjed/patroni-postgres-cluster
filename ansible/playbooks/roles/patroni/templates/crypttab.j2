@@ -1,0 +1,3 @@
+{% for volume, uuid in patroni_crypttab_entries %}
+{{ volume.mapper }} UUID={{ uuid | trim }} {{ volume.keyfile }} luks
+{% endfor %}

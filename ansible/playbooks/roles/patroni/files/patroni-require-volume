@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+path="${1:?usage: patroni-require-volume <path> <expected-device>}"
+expected="${2:?usage: patroni-require-volume <path> <expected-device>}"
+
+if ! mountpoint -q "$path"; then
+    echo "patroni: $path is not a mount point; refusing to start on the root filesystem" >&2
+    exit 1
+fi
+
+actual="$(findmnt -no SOURCE --target "$path" || true)"
+if [[ "$actual" != "$expected" ]]; then
+    echo "patroni: $path is mounted from '${actual:-nothing}', expected '$expected'" >&2
+    exit 1
+fi

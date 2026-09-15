@@ -31,7 +31,10 @@
             /usr/pgsql-18/bin/psql --no-psqlrc --set=ON_ERROR_STOP=1
             --file=/var/lib/pgsql/appdb.sql
           become_user: postgres
+          environment:
+            PATRONI_APP_PASSWORD: "{{ patroni_app_user_password }}"
           changed_when: true
+          diff: false
           no_log: true
       always:
         - name: clean up

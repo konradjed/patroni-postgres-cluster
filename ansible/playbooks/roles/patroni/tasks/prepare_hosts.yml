@@ -22,6 +22,7 @@
       - epel-release
       - firewalld
       - python3-firewall
+      - cryptsetup
     state: present
   register: repo_prereqs
   retries: 5

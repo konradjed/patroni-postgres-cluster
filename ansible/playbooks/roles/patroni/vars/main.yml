@@ -19,3 +19,19 @@ patroni_vars_replicator_password: "{{ patroni_replicator_password }}"
 patroni_vars_postgres_password: "{{ patroni_postgres_password }}"
 patroni_pgbackrest_data_dir: /var/lib/pgbackrest
 patroni_pgbackrest_log_dir: /var/log/pgbackrest
+patroni_luks_key_dir: /etc/luks/luks-keys
+patroni_postgres_volume_name: >-
+  {{
+    patroni_data_volumes
+    | selectattr('path', 'equalto', patroni_postgres_main_dir)
+    | map(attribute='name')
+    | first
+  }}
+
+patroni_etcd_volume_name: >-
+  {{
+    patroni_data_volumes
+    | selectattr('path', 'equalto', patroni_etcd_data_dir)
+    | map(attribute='name')
+    | first
+  }}

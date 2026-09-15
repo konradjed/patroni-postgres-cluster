@@ -3,11 +3,20 @@
   hosts: minio
   become: true
   tasks:
+    - name: Add ports
+      ansible.posix.firewalld:
+        zone: public
+        permanent: true
+        port: "9001/tcp"
+        state: enabled
+        immediate: true
+
     - name: Download minio.rpm
       ansible.builtin.uri:
         follow_redirects: all
-        url: https://dl.min.io/aistor/minio/release/linux-amd64/minio.rpm
-        dest: /tmp/minio.rpm
+        url: "https://dl.min.io/server/minio/release/linux-amd64/archive/minio-20240829014052.0.0.x86_64.rpm"
+        dest: "/tmp/minio.rpm"
+        status_code: [200, 304]
 
     - name: Install minio.rpm
       ansible.builtin.dnf:

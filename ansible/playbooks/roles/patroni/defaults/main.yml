@@ -10,6 +10,20 @@ patroni_firewall_ports:
   - 2380
   - 5432
   - 8008
+
+patroni_volume_fstype: xfs
+patroni_data_volumes:
+  - name: pgdata
+    device:              # device id
+    path: /var/lib/pgsql
+    gib: 10
+    owner: postgres
+  - name: etcd
+    device:              # device id
+    path: /var/lib/etcd
+    gib: 5
+    owner: etcd
+
 patroni_pg_token: PostgreSQL_HA_Cluster
 patroni_cluster_name: pg_cluster
 patroni_app_db_name: app

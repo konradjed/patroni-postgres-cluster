@@ -10,6 +10,9 @@
 - name: Prepare system
   ansible.builtin.include_tasks: prepare_hosts.yml
 
+- name: Encrypt data volumes
+  ansible.builtin.include_tasks: luks2.yml
+
 - name: Configure firewalld
   ansible.builtin.include_tasks: firewalld.yml
 
