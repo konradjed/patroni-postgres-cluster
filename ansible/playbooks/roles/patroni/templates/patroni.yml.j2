@@ -59,8 +59,8 @@ bootstrap:
               archive_command: "pgbackrest --stanza={{ patroni_cluster_name }} archive-push %p"
               restore_command: "pgbackrest --stanza={{ patroni_cluster_name }} archive-get %f %p"
           pg_hba:
-              - local all all          peer
               - local {{ patroni_app_db_name }} dumper peer map=dumpmap
+              - local all all          peer
               - hostssl all all 127.0.0.1/32 scram-sha-256
               - hostssl all all ::1/128 scram-sha-256
               - hostssl replication replicator 127.0.0.1/32 scram-sha-256

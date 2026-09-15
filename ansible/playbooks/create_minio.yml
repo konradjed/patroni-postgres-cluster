@@ -1,0 +1,55 @@
+---
+- name: Prepare minio s3 bucket
+  hosts: minio
+  become: true
+  tasks:
+    - name: Download minio.rpm
+      ansible.builtin.uri:
+        follow_redirects: all
+        url: https://dl.min.io/aistor/minio/release/linux-amd64/minio.rpm
+        dest: /tmp/minio.rpm
+
+    - name: Install minio.rpm
+      ansible.builtin.dnf:
+        name: /tmp/minio.rpm
+        state: present
+        disable_gpg_check: true
+
+    - name: Configure volumes
+      ansible.builtin.copy:
+        content: |
+            MINIO_VOLUMES="/mnt/drive-1/minio"
+        dest: /etc/default/minio
+        mode: '0640'
+        owner: minio-user
+        group: minio-user
+
+    - name: Configure creds
+      ansible.builtin.copy:
+        content: |
+            MINIO_ROOT_USER="{{ minio_admin_username }}"
+            MINIO_ROOT_PASSWORD="{{ minio_admin_password }}"
+        dest: /etc/minio/config.env
+        mode: '0600'
+        owner: minio-user
+        group: minio-user
+
+    - name: Configure minio disk
+      ansible.builtin.file:
+        state: directory
+        path: /mnt/drive-1/minio
+        owner: minio-user
+        group: minio-user
+        mode: '0750'
+
+    - name: Enable service
+      ansible.builtin.systemd_service:
+        state: started
+        enabled: true
+        name: minio.service
+
+    - name: Minio service status
+      ansible.builtin.service_facts:
+    - name: Print Minio status
+      ansible.builtin.debug:
+        msg: "Minio status for {{ inventory_hostname }}: {{ ansible_facts.services['minio.service'].state }}"
