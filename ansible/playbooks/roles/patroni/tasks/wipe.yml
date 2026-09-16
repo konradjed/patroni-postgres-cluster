@@ -3,6 +3,26 @@
 - name: Wipe postgres data and WAL archive
   when: patroni_wipe_existing_cluster | bool
   block:
+    - name: Ensure volume verification helper is installed
+      ansible.builtin.copy:
+        src: patroni-require-volume
+        dest: /usr/local/sbin/patroni-require-volume
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Verify data volumes before destructive wipe
+      ansible.builtin.command:
+        argv:
+          - /usr/local/sbin/patroni-require-volume
+          - "{{ item.path }}"
+          - "/dev/mapper/patroni-{{ item.name }}"
+      changed_when: false
+      loop: "{{ patroni_data_volumes }}"
+      loop_control:
+        label: >-
+          {{ item.path }} <- /dev/mapper/patroni-{{ item.name }}
+
     - name: Stop Patroni before wiping
       ansible.builtin.systemd_service:
         name: percona-patroni
@@ -37,6 +57,11 @@
         name: etcd
         state: stopped
       failed_when: false
+
+    - name: Unmount etcd data volume
+      ansible.posix.mount:
+        path: "{{ patroni_etcd_data_dir }}"
+        state: unmounted
 
     - name: Remove etcd data directory
       ansible.builtin.file:

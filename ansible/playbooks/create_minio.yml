@@ -14,7 +14,7 @@
     - name: Download minio.rpm
       ansible.builtin.uri:
         follow_redirects: all
-        url: "https://dl.min.io/server/minio/release/linux-amd64/archive/minio-20240829014052.0.0.x86_64.rpm"
+        url: "https://dl.min.io/aistor/minio/release/linux-amd64/minio.rpm"
         dest: "/tmp/minio.rpm"
         status_code: [200, 304]
 
@@ -24,22 +24,31 @@
         state: present
         disable_gpg_check: true
 
+    - name: Create minio config directory
+      ansible.builtin.file:
+        path: /opt/minio
+        state: directory
+        owner: minio-user
+        group: minio-user
+        mode: '0750'
+
+    - name: Add license
+      ansible.builtin.copy:
+        src: minio.license
+        dest: /opt/minio/minio.license
+        owner: minio-user
+        group: minio-user
+        mode: '0640'
+
     - name: Configure volumes
       ansible.builtin.copy:
         content: |
+            MINIO_LICENSE="/opt/minio/minio.license"
             MINIO_VOLUMES="/mnt/drive-1/minio"
-        dest: /etc/default/minio
-        mode: '0640'
-        owner: minio-user
-        group: minio-user
-
-    - name: Configure creds
-      ansible.builtin.copy:
-        content: |
             MINIO_ROOT_USER="{{ minio_admin_username }}"
             MINIO_ROOT_PASSWORD="{{ minio_admin_password }}"
-        dest: /etc/minio/config.env
-        mode: '0600'
+        dest: /etc/default/minio
+        mode: '0640'
         owner: minio-user
         group: minio-user
 
@@ -56,9 +65,32 @@
         state: started
         enabled: true
         name: minio.service
+      register: minio_start_output
+
+    - name: Print minio start output
+      ansible.builtin.debug:
+        msg: "Minio start output for {{ inventory_hostname }}: {{ minio_start_output }}"
 
     - name: Minio service status
       ansible.builtin.service_facts:
     - name: Print Minio status
       ansible.builtin.debug:
         msg: "Minio status for {{ inventory_hostname }}: {{ ansible_facts.services['minio.service'].state }}"
+
+    - name: Install minio cli
+      ansible.builtin.get_url:
+        url: "https://dl.min.io/aistor/mc/release/linux-amd64/mc"
+        dest: /usr/local/bin/mcli
+        mode: '0755'
+    - name: Create alias
+
+      ansible.builtin.command:
+        cmd: /usr/local/bin/mcli alias set patroni http://{{ ansible_host }}:9000 {{ minio_admin_username }} {{ minio_admin_password }}
+      changed_when: false
+
+    - name: Create bucket
+      ansible.builtin.command:
+        cmd: /usr/local/bin/mcli mb patroni/{{ patroni_s3_bucket_name }}
+      register: minio_bucket_creation
+      changed_when: minio_bucket_creation.rc == 0 and "Bucket created successfully patroni/{{ patroni_s3_bucket_name }}" in minio_bucket_creation.stdout
+      failed_when: minio_bucket_creation.rc != 0 and "Bucket created successfully patroni/{{ patroni_s3_bucket_name }}" not in minio_bucket_creation.stdout

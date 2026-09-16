@@ -1,29 +1,48 @@
 # SPDX-License-Identifier: MIT-0
 ---
 # tasks file for patroni
+
+# Validate required secrets, the supported operating system, and the structure
+# of all configured data-volume definitions before making host changes.
 - name: Preflight
   ansible.builtin.include_tasks: preflight.yml
 
+# When explicitly enabled, remove the existing Patroni DCS entry and local
+# PostgreSQL, WAL archive, and etcd data before rebuilding the cluster.
 - name: Wipe existing cluster
   ansible.builtin.include_tasks: wipe.yml
 
+# Configure hostnames and repositories, install the required packages and stop
+# package-provided services that must not manage the cluster directly.
 - name: Prepare system
   ansible.builtin.include_tasks: prepare_hosts.yml
 
+# Validate the configured block devices, provision/open LUKS2 containers,
+# create filesystems, manage crypttab and mount the PostgreSQL and etcd volumes.
 - name: Encrypt data volumes
   ansible.builtin.include_tasks: luks2.yml
 
+# Apply the default-deny host firewall policy and allow only management,
+# application, and inter-node cluster traffic.
 - name: Configure firewalld
   ansible.builtin.include_tasks: firewalld.yml
 
+# Install certificates and configuration, then bootstrap or start the secured
+# etcd cluster used as Patroni's distributed configuration store.
 - name: Configure Etcd
   ansible.builtin.include_tasks: etcd.yml
 
+# Install PostgreSQL and Patroni TLS material, configuration, watchdog rules,
+# and the custom Patroni systemd service.
 - name: Configure Patroni cluster
   ansible.builtin.include_tasks: patroni.yml
 
+# Configure the encrypted S3 pgBackRest repository, helper programs and backup
+# timers, then start Patroni and validate the repository stanza.
 - name: Configure pgBackRest
   ansible.builtin.include_tasks: backup.yml
 
+# Wait until the cluster has one leader, streaming replicas, and a synchronous
+# standby, then print the final member state.
 - name: Check cluster status
   ansible.builtin.include_tasks: check_status.yml

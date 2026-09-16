@@ -30,7 +30,7 @@ patroni_app_db_name: app
 patroni_s3_prefix: /pgbackrest
 patroni_s3_bucket_name: patroni-bucket
 patroni_s3_endpoint: 192.168.172.140
-patroni_s3_port: 443
+patroni_s3_port: 9000
 patroni_s3_region: eu-central-1
 
 patroni_on_boot_full_backup: 3min
@@ -50,6 +50,16 @@ patroni_minio_secret: ""
 patroni_repo_cipher_pass: ""
 patroni_dump_cipher_pass: ""
 
-# CRITICAL
-# Wipe etcd data dir on all nodes before start (for a failed bootstrap). Destroys DCS state!
+
+# ==============================================================================
+# !!! DANGER !!! DESTRUCTIVE AND IRREVERSIBLE CLUSTER RECREATION !!! DANGER !!!
+# ==============================================================================
+# Set to true ONLY after the decision has been reviewed and agreed with the
+# application and database owners, the application is not required to remain
+# available, and there is an explicit need to destroy and rebuild the cluster.
+#
+# TRUE REMOVES POSTGRESQL DATA, THE LOCAL WAL ARCHIVE, AND THE COMPLETE LOCAL
+# ETCD/DCS STATE ON EVERY SELECTED HOST. ALWAYS TARGET THE FULL CLUSTER.
+# ==============================================================================
 patroni_wipe_existing_cluster: false
+# ==============================================================================

@@ -8,6 +8,12 @@ This role is intended for bootstrapping a cluster on new machines and for
 destructively recreating a cluster during a planned maintenance window.
 Configuration changes on a running cluster are handled by a separate role.
 
+> [!CAUTION]
+> 🔴 **Cluster recreation is a deliberate and irreversible operational
+> decision.** It must be explicitly reviewed and agreed with the application
+> owners and the operators responsible for the database, storage, and backups
+> before `patroni_wipe_existing_cluster` is enabled.
+
 The role assumes full control of PostgreSQL and etcd data, dedicated data
 disks, firewalld, `/etc/crypttab`, and the relevant systemd units.
 
@@ -25,11 +31,13 @@ disks, firewalld, `/etc/crypttab`, and the relevant systemd units.
 
 ## Execution flow
 
-1. Validate required secrets and the operating system.
-2. Optionally remove the existing DCS entry, PostgreSQL data, WAL archive, and
-   etcd data.
+1. Validate required secrets, the operating system, and the structure of every
+   data-volume definition.
+2. When explicitly requested, irreversibly remove the existing DCS entry,
+   PostgreSQL data, WAL archive, and etcd data.
 3. Install packages and prepare services.
-4. Identify, encrypt, format, and mount data volumes.
+4. Validate the configured block devices, create or open their LUKS2
+   containers, create filesystems when needed, and mount the volumes.
 5. Replace `/etc/crypttab` with entries managed by this role.
 6. Configure the firewall, etcd, Patroni, PostgreSQL, and pgBackRest.
 7. Start the cluster and backup timers.
@@ -43,7 +51,6 @@ disks, firewalld, `/etc/crypttab`, and the relevant systemd units.
 - Ansible 2.20.1 or newer, as declared in the role metadata.
 - Collections listed in `ansible/collections/requirements.yml`.
 - SSH access and privilege escalation on every target host.
-- Access to the encrypted group variables.
 - Required certificates and keys staged before execution.
 
 Install the collections from the repository root:
@@ -59,7 +66,7 @@ ansible-galaxy collection install -r collections/requirements.yml
 - Access to the configured package repositories.
 - Support for LUKS2, XFS, and the `softdog` module.
 - Dedicated disks matching `patroni_data_volumes`.
-- Access to the configured S3 or MinIO endpoint and bucket.
+- Access to the configured S3 bucket.
 
 The current topology is designed for three PostgreSQL/etcd nodes. Hostnames and
 `ansible_host` addresses must match the supplied certificates.
@@ -83,6 +90,75 @@ Every member of `patroni_inventory_group` is used when generating the etcd
 initial cluster, PostgreSQL replication rules, firewall rules, and Patroni DCS
 endpoint list.
 
+## Critical inputs before running the playbook
+
+> [!IMPORTANT]
+> The role intentionally stops cluster services, controls the host firewall,
+> writes `/etc/crypttab`, and may erase the block devices declared in
+> `patroni_data_volumes`. Review all values below for every host before running
+> the playbook.
+
+### Secrets required by preflight
+
+Preflight refuses to continue when any of these variables is empty:
+
+| Variable | Why it is required | Persistence requirement |
+| --- | --- | --- |
+| `patroni_postgres_password` | Password of the PostgreSQL `postgres` superuser managed by Patroni. | Keep for administration and disaster recovery. |
+| `patroni_replicator_password` | Password used by Patroni members for streaming replication. | Must remain identical and available across the cluster. |
+| `patroni_minio_key` | S3 access key used by pgBackRest and logical dump uploads. | Rotate together with the configured object-storage account. |
+| `patroni_minio_secret` | S3 secret key. | Treat as a credential and store only in an encrypted secret source. |
+| `patroni_repo_cipher_pass` | Passphrase used to encrypt the pgBackRest repository. | Losing it makes retained physical backups unusable. |
+| `patroni_dump_cipher_pass` | Passphrase used by OpenSSL to encrypt logical dumps. | Losing it makes retained logical dumps unusable. |
+
+Store these values in Ansible Vault or another encrypted variable source. Do
+not place plaintext credentials in role defaults, inventory, or Git.
+
+`patroni_app_user_password` is also required by the final application-database
+bootstrap step. It is not currently part of the preflight assertion, so an
+undefined value fails later when the leader executes the SQL bootstrap. Store
+it with the other secrets.
+
+### Data volumes required by preflight
+
+`patroni_data_volumes` is required on every cluster host. Preflight checks that
+each item provides a non-empty `name`, `device`, `path`, positive `gib`, and
+`owner`. The LUKS stage subsequently checks that `device` exists, is a whole
+block disk, and matches the declared size within a 2% tolerance.
+
+Use a stable whole-disk path under `/dev/disk/by-id/`, never a kernel-order name
+such as `/dev/nvme0n2` and never a partition ending in `-partN`.
+
+Example host-specific configuration:
+
+```yaml
+patroni_data_volumes:
+  - name: pgdata
+    device: /dev/disk/by-id/nvme-eui.<postgres-device-id>
+    path: /var/lib/pgsql
+    gib: 10
+    owner: postgres
+  - name: etcd
+    device: /dev/disk/by-id/nvme-eui.<etcd-device-id>
+    path: /var/lib/etcd
+    gib: 5
+    owner: etcd
+```
+
+> [!CAUTION]
+> If a configured device is not already a LUKS container, the role removes its
+> existing signatures, creates a new LUKS2 container, and creates a filesystem.
+> A valid device path and matching size do not prove that the disk contains no
+> valuable data. Verify every device ID against the infrastructure inventory.
+
+### LUKS key material
+
+LUKS key files are generated automatically under `/etc/luks/luks-keys` and are
+referenced from the managed `/etc/crypttab`. They are not input variables, but
+they are critical secrets after the first deployment. Back them up through an
+approved secret-recovery mechanism. Reinstalling a host without restoring its
+key files prevents the role from opening existing encrypted data volumes.
+
 ## Role variables
 
 ### Cluster and network
@@ -102,7 +178,7 @@ endpoint list.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `patroni_volume_fstype` | `xfs` | Filesystem created inside each LUKS mapper. It is passed to `mkfs.<value>`. |
-| `patroni_data_volumes` | See below | Dedicated volumes. Each item defines `name`, mount `path`, expected size in `gib`, and filesystem `owner`. Mapper names are generated as `patroni-<name>`. |
+| `patroni_data_volumes` | See below | Dedicated volumes. Each item defines a stable whole-disk `device`, mapper `name`, mount `path`, expected size in `gib`, and filesystem `owner`. Mapper names are generated as `patroni-<name>`. Override this list per host. |
 | `patroni_wipe_existing_cluster` | `false` | When `true`, removes the DCS entry and PostgreSQL, WAL archive, and etcd data. It does not remove the remote backup repository. |
 
 Default layout:
@@ -111,31 +187,36 @@ Default layout:
 patroni_volume_fstype: xfs
 patroni_data_volumes:
   - name: pgdata
+    device:
     path: /var/lib/pgsql
     gib: 10
     owner: postgres
   - name: etcd
+    device:
     path: /var/lib/etcd
     gib: 5
     owner: etcd
 ```
 
-The current implementation identifies raw devices by size with a 2% tolerance.
-Exactly one device must match each configured size. Sizes must be unique on a
-host and must not match any disk that should be preserved.
+The empty device defaults are deliberate: every host must provide its own
+stable `/dev/disk/by-id/...` paths. The role does not discover a target disk by
+size. It uses the configured device and treats the declared size as an
+additional validation constraint.
 
-For an unencrypted matching device, the role unmounts filesystems backed by it,
-removes existing signatures, creates a LUKS2 container and key file, opens the
-mapper, creates the filesystem when missing, and mounts it.
+For a configured device that is not already encrypted, the role unmounts
+filesystems backed by it, removes existing signatures, creates a LUKS2
+container and local key file, opens the mapper, creates the configured
+filesystem, and mounts it. For an existing LUKS container, it reuses the
+container and key file. If the opened mapper does not contain
+`patroni_volume_fstype`, the role formats it with the configured filesystem.
 
-Keys are stored under `/etc/patroni/luks` with root-only access. When reusing an
-already encrypted disk after rebuilding the operating system, restore its
-original key file. A newly generated key cannot open an existing container.
+Keys are stored under `/etc/luks/luks-keys` with root-only access. When reusing
+an encrypted disk after rebuilding the operating system, restore its original
+key file. A newly generated key cannot open an existing container.
 
 Replacing the complete `/etc/crypttab` is intentional for these dedicated
-hosts. The current systemd units expect `/dev/mapper/patroni-pgdata` and
-`/dev/mapper/patroni-etcd`, so keep the names `pgdata` and `etcd` unless their
-unit templates are also changed.
+hosts. The systemd volume guards obtain the PostgreSQL and etcd mapper names
+from the entries whose paths match `/var/lib/pgsql` and `/var/lib/etcd`.
 
 ### Application database
 
@@ -152,7 +233,7 @@ The bootstrap SQL creates or updates `app_user`, the local peer-authenticated
 | Variable | Default | Description |
 | --- | --- | --- |
 | `patroni_s3_endpoint` | `192.168.172.140` | S3-compatible endpoint without a scheme. HTTPS is used. |
-| `patroni_s3_port` | `443` | HTTPS port of the endpoint. |
+| `patroni_s3_port` | `9000` | TLS port of the configured S3-compatible endpoint. |
 | `patroni_s3_region` | `eu-central-1` | Region passed to pgBackRest and boto3. |
 | `patroni_s3_bucket_name` | `patroni-bucket` | Existing bucket for backups and dumps. The role does not create it. |
 | `patroni_s3_prefix` | `/pgbackrest` | pgBackRest repository path inside the bucket. |
@@ -210,50 +291,125 @@ Role vars have high precedence and are not the normal configuration interface.
 | `patroni_postgres_ssl` | `/var/lib/pgsql/18/ssl` | PostgreSQL server certificate directory. |
 | `patroni_pgbackrest_data_dir` | `/var/lib/pgbackrest` | pgBackRest data directory. |
 | `patroni_pgbackrest_log_dir` | `/var/log/pgbackrest` | pgBackRest log directory. |
-| `patroni_luks_key_dir` | `/etc/patroni/luks` | Local LUKS key directory. |
+| `patroni_luks_key_dir` | `/etc/luks/luks-keys` | Local LUKS key directory. Its contents are required to reopen existing encrypted volumes. |
 | `patroni_vars_postgres_password` | `{{ patroni_postgres_password }}` | Internal alias rendered into the Patroni configuration. |
 | `patroni_vars_replicator_password` | `{{ patroni_replicator_password }}` | Internal alias rendered into the Patroni configuration. |
 
-## Certificates
+## Required role files
 
 Certificates and private keys are supplied outside Git. A separate script can
-generate them for tests; production certificates must be staged before running
-the playbook.
+generate them for test environments; production material must be staged before
+running the playbook.
 
-Expected layout below `ansible/playbooks/roles/patroni/files/certs/`:
+> [!WARNING]
+> The certificate-generation script does not produce certificate material
+> suitable for a production deployment. For production, issue and deliver the
+> complete certificate set through the organization's internal PKI, following
+> its policies for identity validation, key protection, validity periods,
+> renewal, revocation, and CA trust distribution.
+
+> [!IMPORTANT]
+> The role copies files by names derived from `inventory_hostname`. A missing,
+> incorrectly named, expired, mismatched, or untrusted certificate stops the
+> deployment or prevents etcd, Patroni, PostgreSQL, health checks, or backups
+> from working. Prepare the complete file set for every cluster member before
+> execution.
+
+Only the following files under `ansible/playbooks/roles/patroni/files/` are
+consumed by the role:
 
 ```text
-ca/ca.crt
-etcd/etcd-<hostname>.crt
-etcd/etcd-<hostname>.key
-patroni/patroni-<hostname>.crt
-patroni/patroni-<hostname>.key
-dcs-client/dcsclient-<hostname>.crt
-dcs-client/dcsclient-<hostname>.key
-postgres/pgsrv-<hostname>.crt
-postgres/pgsrv-<hostname>.key
+files/
+├── patroni-require-volume
+└── certs/
+    ├── ca/
+    │   └── ca.crt
+    ├── etcd/
+    │   ├── etcd-<inventory_hostname>.crt
+    │   └── etcd-<inventory_hostname>.key
+    ├── patroni/
+    │   ├── patroni-<inventory_hostname>.crt
+    │   └── patroni-<inventory_hostname>.key
+    ├── dcs-client/
+    │   ├── dcsclient-<inventory_hostname>.crt
+    │   └── dcsclient-<inventory_hostname>.key
+    └── postgres/
+        ├── pgsrv-<inventory_hostname>.crt
+        └── pgsrv-<inventory_hostname>.key
 ```
 
-etcd and Patroni REST certificates need server and client authentication usage.
-DCS certificates need client usage, and PostgreSQL certificates need server
-usage. Server certificates must contain the inventory hostname and IP address.
-Certificates used for local health checks must also cover `127.0.0.1` where
-applicable. The same CA verifies the S3 or MinIO endpoint.
+For an inventory containing `pg1`, `pg2`, and `pg3`, every host-specific
+directory therefore needs a matching pair for all three names.
 
-The CA private key is not required by this role and must not be copied to target
+| Location | Installed destination and purpose |
+| --- | --- |
+| `certs/ca/ca.crt` | Installed as `/etc/pki/patroni/ca.crt`. It is the trust anchor for etcd, Patroni REST, PostgreSQL TLS, and the configured S3 or MinIO endpoint. |
+| `certs/etcd/etcd-<host>.crt/.key` | Installed under `/etc/etcd/ssl`. etcd uses the pair for encrypted and mutually authenticated peer and client traffic. |
+| `certs/patroni/patroni-<host>.crt/.key` | Installed under `/etc/patroni/ssl`. Patroni serves its REST API with this pair; local leader checks and Ansible health checks also authenticate with it. |
+| `certs/dcs-client/dcsclient-<host>.crt/.key` | Installed under `/etc/patroni/dcs-client`. Patroni uses it as a client identity when connecting to etcd. |
+| `certs/postgres/pgsrv-<host>.crt/.key` | Installed as `pgsrv.crt` and `pgsrv.key` under `/var/lib/pgsql/18/ssl`. PostgreSQL uses the pair for TLS client and replication connections. |
+| `patroni-require-volume` | Installed as `/usr/local/sbin/patroni-require-volume`. The etcd and Patroni systemd units call it before startup to ensure their data path is a mountpoint backed by the expected LUKS mapper. |
+
+Certificate requirements:
+
+- etcd certificates require server and client authentication usage;
+- Patroni REST certificates require server and client authentication usage;
+- DCS client certificates require client authentication usage;
+- PostgreSQL certificates require server authentication usage;
+- server certificates must contain the inventory hostname and its
+  `ansible_host` address;
+- certificates used through `127.0.0.1` by local health checks must include
+  that address in their subject alternative names;
+- the certificate presented by S3 or MinIO must chain to `ca.crt`.
+
+The CA private key is not consumed by the role and must not be copied to target
 hosts.
 
 ## Running the playbook
 
 Run from the `ansible` directory.
 
-### New deployment
+### Create a new cluster
 
 ```bash
 ansible-playbook playbooks/create_cluster.yml --ask-vault-pass
 ```
 
-### Destructive recreation
+With the default `patroni_wipe_existing_cluster: false`, the wipe block is
+skipped. The role then:
+
+1. validates the operating system, required secrets, and volume definitions;
+2. installs the required repositories and packages and disables conflicting
+   package-provided services;
+3. validates every configured device against its declared type and size;
+4. creates a LUKS2 container when the device is not already encrypted, opens
+   the mapper, creates the configured filesystem when absent or different, and
+   mounts it;
+5. replaces `/etc/crypttab` with the generated LUKS UUID and key-file entries;
+6. configures the firewall, etcd, Patroni, PostgreSQL, and pgBackRest;
+7. starts the cluster, waits for one leader and streaming synchronous replicas,
+   and creates the application database on the leader.
+
+> [!CAUTION]
+> `patroni_wipe_existing_cluster: false` disables only the explicit cluster-data
+> wipe. It does not make storage preparation non-destructive. A configured
+> device without LUKS is passed through `wipefs`, `luksFormat`, and filesystem
+> creation. A LUKS mapper containing a filesystem different from
+> `patroni_volume_fstype` is also reformatted. New deployments require dedicated
+> disks whose contents may be destroyed.
+
+### Recreate an existing cluster
+
+> [!CAUTION]
+> 🔴 **DESTRUCTIVE AND IRREVERSIBLE OPERATION**
+>
+> Setting `patroni_wipe_existing_cluster=true` is an explicit request to
+> destroy the local PostgreSQL cluster and the complete local etcd state on
+> every selected host. Use this option only when the application is not
+> required to remain available and there is an agreed need to destroy and
+> rebuild the cluster. The decision must be reviewed with the application and
+> database owners, including the expected data-loss boundary and backup
+> recovery plan. Run it against the complete cluster inventory.
 
 ```bash
 ansible-playbook playbooks/create_cluster.yml \
@@ -261,10 +417,60 @@ ansible-playbook playbooks/create_cluster.yml \
   -e patroni_wipe_existing_cluster=true
 ```
 
-Run recreation against the complete cluster inventory during a maintenance
-window. It does not restore a backup or delete the remote pgBackRest repository
-and logical dumps. A new PostgreSQL cluster has a new system identifier, so
-decide how the deployment will separate or replace an existing pgBackRest stanza.
+Do not combine cluster recreation with an inventory limit that selects only a
+subset of Patroni/etcd members.
+
+With the flag enabled, the current playbook performs these steps:
+
+1. Preflight validates the same secrets, operating system, and volume
+   definitions as a new deployment.
+2. Patroni is stopped on every selected host. Stop failures are currently
+   tolerated to support hosts on which the service does not yet exist.
+3. On one host, `patronictl remove` attempts to delete the configured Patroni
+   scope from DCS when an existing Patroni configuration is present. Failure of
+   this best-effort removal is tolerated.
+4. The PostgreSQL data directory and local WAL archive directory are removed.
+5. etcd is stopped and its complete data directory is removed. Because etcd is
+   dedicated to this deployment, this destroys the entire local DCS state.
+6. The normal provisioning path continues: packages, LUKS volumes, firewall,
+   etcd, Patroni, pgBackRest, cluster checks, and the application database are
+   configured again.
+
+The recreate flag removes logical cluster data but does not intentionally
+replace an existing LUKS container, LUKS UUID, key file, or matching filesystem.
+Those are reused when they can be opened successfully. It also does not:
+
+- restore PostgreSQL data from a backup;
+- delete physical backups from the remote pgBackRest repository;
+- delete encrypted logical dump objects from S3 or MinIO;
+- rotate database passwords, repository encryption secrets, certificates, or
+  LUKS keys unless different inputs are supplied separately.
+
+> [!CAUTION]
+> 🔴 **VERIFY STORAGE BEFORE CONTINUING.** In the current task order, the wipe
+> runs before the LUKS stage verifies and mounts the configured volumes. Before
+> recreation, confirm that both data paths are already mounted from the
+> expected mappers:
+>
+> ```bash
+> findmnt -no SOURCE --target /var/lib/pgsql
+> findmnt -no SOURCE --target /var/lib/etcd
+> ```
+>
+> Expected sources are `/dev/mapper/patroni-<postgres-volume-name>` and
+> `/dev/mapper/patroni-<etcd-volume-name>`. If a path is not mounted, the wipe
+> can remove a directory on the root filesystem and leave old data untouched on
+> the encrypted volume that is mounted later.
+
+> [!CAUTION]
+> 🔴 **REVIEW THE BACKUP REPOSITORY BEFORE RECREATION.** Recreating PostgreSQL
+> produces a new database system identifier. An existing pgBackRest stanza
+> with the same `patroni_cluster_name` and repository path may therefore be
+> incompatible with the new cluster. Decide whether to preserve the old
+> repository under a separate prefix, archive it, or initialize a repository
+> path for the new cluster generation. Preserve `patroni_repo_cipher_pass` and
+> `patroni_dump_cipher_pass` for every retained backup that may need to be
+> restored.
 
 ## Firewall behavior
 

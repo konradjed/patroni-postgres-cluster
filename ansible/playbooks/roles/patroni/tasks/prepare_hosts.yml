@@ -84,7 +84,7 @@
   until: cluster_packages is succeeded
 
 # Configure Firewalld
-- name: Systemd config
+- name: Ensure systemd services are in the desired state
   ansible.builtin.systemd_service:
     name: "{{ item.service }}"
     state: "{{ item.state }}"
@@ -98,8 +98,7 @@
 
 - name: Gather service facts
   ansible.builtin.service_facts:
-
-- name: Stop existing Percona Patroni
+- name: Stop Percona Patroni if runs
   ansible.builtin.systemd_service:
     name: percona-patroni
     state: stopped

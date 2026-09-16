@@ -78,52 +78,84 @@
     group: root
     mode: '0700'
 
-- name: Generate a keyfile for each volume
-  ansible.builtin.shell: |
-    set -o pipefail
-    umask 077
-    head -c 512 /dev/urandom > "{{ item.keyfile }}"
-    chmod 400 "{{ item.keyfile }}"
-  args:
-    executable: /bin/bash
-    creates: "{{ item.keyfile }}"
+- name: Check whether configured devices already contain LUKS
+  ansible.builtin.command:
+    argv:
+      - cryptsetup
+      - isLuks
+      - "{{ item.device }}"
+  register: patroni_existing_luks
+  changed_when: false
+  failed_when: patroni_existing_luks.rc not in [0, 1]
   loop: "{{ patroni_volumes }}"
   loop_control:
-    label: "{{ item.keyfile }}"
+    label: "{{ item.name }} -> {{ item.device }}"
 
-- name: Encrypt, open and format each data volume
+- name: Require explicit recreation for existing encrypted volumes
+  ansible.builtin.assert:
+    that:
+      - item.rc != 0 or (patroni_wipe_existing_cluster | bool)
+    fail_msg: >-
+      {{ item.item.device }} already contains a LUKS volume.
+      Refusing to reformat it while patroni_wipe_existing_cluster is false.
+      Use the explicit recreation mode if this cluster must be destroyed.
+  loop: "{{ patroni_existing_luks.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Unmount data volumes before recreating encryption
+  ansible.posix.mount:
+    path: "{{ item.path }}"
+    state: unmounted
+  loop: "{{ patroni_volumes }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Create/Recreate encrypted data volumes
   ansible.builtin.shell: |
     set -euo pipefail
+
     device="{{ item.device }}"
     mapper="{{ item.mapper }}"
     keyfile="{{ item.keyfile }}"
-    changed=""
+    new_keyfile="${keyfile}.new"
 
-    if ! cryptsetup isLuks "$device"; then
-      real="$(readlink -f "$device")"
-      for mounted in $(findmnt -rno TARGET,SOURCE | awk -v d="$real" '$2 ~ "^"d {print $1}'); do
-        umount "$mounted"
-      done
-      wipefs -a "$device" >/dev/null
-      cryptsetup luksFormat --type luks2 --batch-mode --key-file "$keyfile" "$device"
-      changed="yes"
+    if [ -e "/dev/mapper/$mapper" ]; then
+      cryptsetup close "$mapper"
     fi
 
-    if [ ! -e "/dev/mapper/$mapper" ]; then
-      cryptsetup luksOpen --key-file "$keyfile" "$device" "$mapper"
-      changed="yes"
+    if [ ! -s "$new_keyfile" ]; then
+      umask 077
+      head -c 512 /dev/urandom > "$new_keyfile"
+      chmod 0400 "$new_keyfile"
     fi
 
-    if [ "$(lsblk -dno FSTYPE "/dev/mapper/$mapper")" != "{{ patroni_volume_fstype }}" ]; then
-      mkfs.{{ patroni_volume_fstype }} -q -f "/dev/mapper/$mapper"
-      changed="yes"
-    fi
+    wipefs --all "$device"
 
-    [ -n "$changed" ] && echo changed || true
+    cryptsetup luksFormat \
+      --type luks2 \
+      --batch-mode \
+      --key-file "$new_keyfile" \
+      "$device"
+
+    mv --force "$new_keyfile" "$keyfile"
+    chmod 0400 "$keyfile"
+
+    cryptsetup luksOpen \
+      --key-file "$keyfile" \
+      "$device" \
+      "$mapper"
+
+    mkfs.{{ patroni_volume_fstype }} \
+      -q \
+      -f \
+      "/dev/mapper/$mapper"
+
+    echo changed
   args:
     executable: /bin/bash
-  register: patroni_volume_luks
-  changed_when: "'changed' in patroni_volume_luks.stdout"
+  register: patroni_volume_recreation
+  changed_when: "'changed' in patroni_volume_recreation.stdout"
   loop: "{{ patroni_volumes }}"
   loop_control:
     label: "{{ item.name }} on {{ item.device }}"
