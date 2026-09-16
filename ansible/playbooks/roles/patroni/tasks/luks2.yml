@@ -1,41 +1,66 @@
 ---
 
-- name: Resolve each data volume to a block device by size
-  ansible.builtin.shell: |
-    set -o pipefail
-    lsblk -bdno NAME,SIZE --nodeps | awk -v want="{{ (item.gib | int) * 1024 * 1024 * 1024 }}" '
-      $2 >= want * 0.98 && $2 <= want * 1.02 { print "/dev/" $1 }'
-  args:
-    executable: /bin/bash
-  register: patroni_volume_devices
+- name: Inspect configured data devices
+  ansible.builtin.stat:
+    path: "{{ item.device }}"
+    follow: true
+  register: patroni_volume_device_stats
+  loop: "{{ patroni_data_volumes }}"
+  loop_control:
+    label: "{{ item.name }} -> {{ item.device }}"
+
+- name: Verify configured data devices exist and are block devices
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isblk
+    fail_msg: >-
+      {{ item.item.device | default('<undefined>') }} configured for
+      {{ item.item.name }} does not exist or is not a block device.
+  loop: "{{ patroni_volume_device_stats.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Read configured device type and size
+  ansible.builtin.command:
+    argv:
+      - lsblk
+      - --bytes
+      - --nodeps
+      - --noheadings
+      - --output
+      - TYPE,SIZE
+      - "{{ item.device }}"
+  register: patroni_volume_device_properties
   changed_when: false
   loop: "{{ patroni_data_volumes }}"
   loop_control:
-    label: "{{ item.name }} ({{ item.gib }}GiB)"
+    label: "{{ item.name }} -> {{ item.device }}"
 
-- name: Assert exactly one device matched each volume
+- name: Verify each device is a whole disk of the declared size
   ansible.builtin.assert:
     that:
-      - (item.stdout_lines | length) == 1
+      - item.stdout.split() | length == 2
+      - item.stdout.split()[0] == 'disk'
+      - (item.stdout.split()[1] | int) >= ((item.item.gib | int) * 1073741824 * 0.98)
+      - (item.stdout.split()[1] | int) <= ((item.item.gib | int) * 1073741824 * 1.02)
     fail_msg: >-
-      Expected exactly one {{ item.item.gib }}GiB device for {{ item.item.name }},
-      found {{ item.stdout_lines | length }}. Volume sizes must be distinct
-      from each other and from the root disk.
-  loop: "{{ patroni_volume_devices.results }}"
+      {{ item.item.device }} is not a whole disk of approximately
+      {{ item.item.gib }} GiB (got: {{ item.stdout }}).
+  loop: "{{ patroni_volume_device_properties.results }}"
   loop_control:
     label: "{{ item.item.name }}"
 
 - name: Build the volume map
   ansible.builtin.set_fact:
     patroni_volumes: >-
-      {{ patroni_volumes | default([]) + [item.item | combine({
-           'device': item.stdout_lines[0],
-           'mapper': 'patroni-' ~ item.item.name,
-           'keyfile': patroni_luks_key_dir ~ '/' ~ item.item.name ~ '.key'
+      {{ patroni_volumes | default([]) + [item | combine({
+           'mapper': 'patroni-' ~ item.name,
+           'keyfile': patroni_luks_key_dir ~ '/' ~ item.name ~ '.key'
          })] }}
-  loop: "{{ patroni_volume_devices.results }}"
+  loop: "{{ patroni_data_volumes }}"
   loop_control:
-    label: "{{ item.item.name }} -> {{ item.stdout_lines[0] }}"
+    label: "{{ item.name }} -> {{ item.device }}"
 
 - name: Create the configuration directory
   ansible.builtin.file:
@@ -75,7 +100,8 @@
     changed=""
 
     if ! cryptsetup isLuks "$device"; then
-      for mounted in $(findmnt -rno TARGET,SOURCE | awk -v d="$device" '$2 ~ "^"d {print $1}'); do
+      real="$(readlink -f "$device")"
+      for mounted in $(findmnt -rno TARGET,SOURCE | awk -v d="$real" '$2 ~ "^"d {print $1}'); do
         umount "$mounted"
       done
       wipefs -a "$device" >/dev/null

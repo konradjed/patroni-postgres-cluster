@@ -23,3 +23,16 @@
       Unsupported system.
       This role requires Rocky Linux 9 with systemd.
     success_msg: "Supported system: Rocky Linux 9 with systemd."
+
+- name: Verify data volume definitions
+  ansible.builtin.assert:
+    that:
+      - item.name | default('', true) | length > 0
+      - item.device | default('', true) | length > 0
+      - item.path | default('', true) | length > 0
+      - item.gib | int > 0
+      - item.owner | default('', true) | length > 0
+    fail_msg: "Invalid data volume definition: {{ item }}"
+  loop: "{{ patroni_data_volumes }}"
+  loop_control:
+    label: "{{ item.name | default('<unnamed>', true) }}"
