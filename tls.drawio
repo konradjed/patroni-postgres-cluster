@@ -1,6 +1,6 @@
 <mxfile host="app.diagrams.net">
   <diagram name="Strona-1" id="1vpQ5iBsp8hn_NjKsLGt">
-    <mxGraphModel dx="2826" dy="602" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
+    <mxGraphModel dx="3060" dy="722" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="827" pageHeight="1169" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -202,10 +202,10 @@
         <mxCell id="iNBr1EisIJ4pzIyj7JrA-18" parent="rd5EqeH3I_TCg3G9VesM-3" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="SECONDARY" vertex="1">
           <mxGeometry height="30" width="60" x="1113" y="550" as="geometry" />
         </mxCell>
-        <mxCell id="iNBr1EisIJ4pzIyj7JrA-19" parent="rd5EqeH3I_TCg3G9VesM-3" style="rounded=0;whiteSpace=wrap;html=1;" value="PGbackrest" vertex="1">
+        <mxCell id="iNBr1EisIJ4pzIyj7JrA-19" parent="rd5EqeH3I_TCg3G9VesM-3" style="rounded=0;whiteSpace=wrap;html=1;" value="pgBackRest" vertex="1">
           <mxGeometry height="40" width="80" x="210" y="505" as="geometry" />
         </mxCell>
-        <mxCell id="iNBr1EisIJ4pzIyj7JrA-20" parent="rd5EqeH3I_TCg3G9VesM-3" style="rounded=0;whiteSpace=wrap;html=1;" value="PGDump" vertex="1">
+        <mxCell id="iNBr1EisIJ4pzIyj7JrA-20" parent="rd5EqeH3I_TCg3G9VesM-3" style="rounded=0;whiteSpace=wrap;html=1;" value="pg_dump" vertex="1">
           <mxGeometry height="40" width="80" x="1160" y="500" as="geometry" />
         </mxCell>
         <mxCell id="iNBr1EisIJ4pzIyj7JrA-24" edge="1" parent="rd5EqeH3I_TCg3G9VesM-3" source="rd5EqeH3I_TCg3G9VesM-21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;entryPerimeter=0;fillColor=#e3c800;strokeColor=#B09500;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="rd5EqeH3I_TCg3G9VesM-23">
@@ -214,16 +214,16 @@
             <mxPoint x="200" y="401" as="targetPoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="iNBr1EisIJ4pzIyj7JrA-25" parent="rd5EqeH3I_TCg3G9VesM-3" style="rounded=0;whiteSpace=wrap;html=1;" value="PGbackrest" vertex="1">
+        <mxCell id="iNBr1EisIJ4pzIyj7JrA-25" parent="rd5EqeH3I_TCg3G9VesM-3" style="rounded=0;whiteSpace=wrap;html=1;" value="pgBackRest" vertex="1">
           <mxGeometry height="40" width="80" x="570" y="500" as="geometry" />
         </mxCell>
-        <mxCell id="iNBr1EisIJ4pzIyj7JrA-27" parent="rd5EqeH3I_TCg3G9VesM-3" style="rounded=0;whiteSpace=wrap;html=1;" value="PGbackrest" vertex="1">
+        <mxCell id="iNBr1EisIJ4pzIyj7JrA-27" parent="rd5EqeH3I_TCg3G9VesM-3" style="rounded=0;whiteSpace=wrap;html=1;" value="pgBackRest" vertex="1">
           <mxGeometry height="40" width="80" x="1060" y="500" as="geometry" />
         </mxCell>
-        <mxCell id="iNBr1EisIJ4pzIyj7JrA-28" parent="rd5EqeH3I_TCg3G9VesM-3" style="rounded=0;whiteSpace=wrap;html=1;" value="PGDump" vertex="1">
+        <mxCell id="iNBr1EisIJ4pzIyj7JrA-28" parent="rd5EqeH3I_TCg3G9VesM-3" style="rounded=0;whiteSpace=wrap;html=1;" value="pg_dump" vertex="1">
           <mxGeometry height="40" width="80" x="680" y="500" as="geometry" />
         </mxCell>
-        <mxCell id="iNBr1EisIJ4pzIyj7JrA-29" parent="rd5EqeH3I_TCg3G9VesM-3" style="rounded=0;whiteSpace=wrap;html=1;" value="PGDump" vertex="1">
+        <mxCell id="iNBr1EisIJ4pzIyj7JrA-29" parent="rd5EqeH3I_TCg3G9VesM-3" style="rounded=0;whiteSpace=wrap;html=1;" value="pg_dump" vertex="1">
           <mxGeometry height="40" width="80" x="210" y="460" as="geometry" />
         </mxCell>
         <mxCell id="rd5EqeH3I_TCg3G9VesM-5" edge="1" parent="1" source="rd5EqeH3I_TCg3G9VesM-4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.08;entryY=0.999;entryDx=0;entryDy=0;entryPerimeter=0;fillColor=#647687;strokeColor=#314354;" target="rd5EqeH3I_TCg3G9VesM-8">
