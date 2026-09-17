@@ -23,21 +23,46 @@
         label: >-
           {{ item.path }} <- /dev/mapper/patroni-{{ item.name }}
 
-    - name: Stop Patroni before wiping
-      ansible.builtin.systemd_service:
-        name: percona-patroni
-        state: stopped
-      failed_when: false
     - name: Check for existing Patroni config
       ansible.builtin.stat:
         path: "{{ patroni_patroni_config_yaml }}"
       register: patroni_config
       run_once: true
 
+    - name: Read cluster state
+      ansible.builtin.uri:
+        url: "https://{{ ansible_host }}:8008/cluster"
+        method: GET
+        return_content: true
+        client_cert: "{{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt"
+        client_key: "{{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.key"
+        ca_path: "{{ patroni_ca_cert_dir }}/ca.crt"
+      register: patroni_cluster_state
+      changed_when: false
+      failed_when: false
+      run_once: true
+      when: patroni_config.stat.exists
+
+    - name: Find the current leader
+      ansible.builtin.set_fact:
+        patroni_dcs_leader: >-
+          {{ patroni_cluster_state.json.members
+            | default([])
+            | selectattr('role', 'in', ['leader', 'standby_leader'])
+            | map(attribute='name')
+            | first | default('') }}
+      run_once: true
+
+    - name: Stop Patroni before wiping
+      ansible.builtin.systemd_service:
+        name: percona-patroni
+        state: stopped
+      failed_when: false
+
     - name: Remove cluster from DCS
       ansible.builtin.command: patronictl -c {{ patroni_patroni_config_yaml }} remove {{ patroni_cluster_name }}
       args:
-        stdin: "{{ patroni_cluster_name }}\nYes I am aware"
+        stdin: "{{ patroni_cluster_name }}\nYes I am aware\n{{ patroni_dcs_leader }}"
       register: patroni_remove
       failed_when: false
       changed_when: patroni_remove.rc == 0

@@ -1,11 +1,11 @@
 patroni_data_volumes:
   - name: pgdata
-    device: /dev/disk/by-id/nvme-eui.dcdfe91432356c42000c296757d02b1e
+    device: /dev/disk/by-id/nvme-eui.e0193c4fa4cb01ae000c29677416e545
     path: /var/lib/pgsql
     gib: 10
     owner: postgres
   - name: etcd
-    device: /dev/disk/by-id/nvme-eui.1b446b83f62d8906000c296f576efd5a
+    device: /dev/disk/by-id/nvme-eui.7b2e376824915744000c296fc63f9c57
     path: /var/lib/etcd
     gib: 5
     owner: etcd

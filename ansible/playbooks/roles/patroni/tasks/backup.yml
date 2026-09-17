@@ -14,7 +14,7 @@
 
 - name: Backup pgBackRest configuration
   ansible.builtin.copy:
-    src: /etc/pgbackrest/pgbackrest.conf
+    src: /etc/pgbackrest.conf
     dest: /etc/pgbackrest/pgbackrest.conf.bak
     remote_src: true
     owner: root
@@ -77,19 +77,28 @@
     state: started
     enabled: true
 
+- name: Check leadership before creating the stanza
+  ansible.builtin.command: /usr/local/lib/patroni/leader-gate
+  register: stanza_gate
+  changed_when: false
+  failed_when: false
+  until: stanza_gate.rc != 2
+  retries: 60
+  delay: 2
+
 - name: Create stanza
   ansible.builtin.command: >-
     pgbackrest --stanza={{ patroni_cluster_name }} --no-online stanza-create
-  become: true
   become_user: postgres
   changed_when: false
+  when: stanza_gate.rc == 0
 
-- name: Check repo
+- name: Check the repository
   ansible.builtin.command: >-
     pgbackrest --stanza={{ patroni_cluster_name }} check
-  become: true
   become_user: postgres
   changed_when: false
+  when: stanza_gate.rc == 0
 
 - name: Dump passphrase
   ansible.builtin.copy:
