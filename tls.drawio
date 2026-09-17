@@ -108,13 +108,13 @@
           <mxGeometry height="50" width="39.74" x="120" y="460" as="geometry" />
         </mxCell>
         <mxCell id="rd5EqeH3I_TCg3G9VesM-31" parent="rd5EqeH3I_TCg3G9VesM-3" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#DD344C;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.encrypted_data;" value="Client and Server type cert" vertex="1">
-          <mxGeometry height="50" width="39.74" x="100" y="320" as="geometry" />
+          <mxGeometry height="50" width="39.74" x="80.26" y="317.5" as="geometry" />
         </mxCell>
         <mxCell id="rd5EqeH3I_TCg3G9VesM-32" parent="rd5EqeH3I_TCg3G9VesM-3" style="sketch=0;outlineConnect=0;fontColor=#232F3E;gradientColor=none;fillColor=#DD344C;strokeColor=none;dashed=0;verticalLabelPosition=bottom;verticalAlign=top;align=center;html=1;fontSize=12;fontStyle=0;aspect=fixed;pointerEvents=1;shape=mxgraph.aws4.encrypted_data;" value="Client and Server type cert" vertex="1">
           <mxGeometry height="50" width="39.74" x="90" y="150" as="geometry" />
         </mxCell>
         <mxCell id="rd5EqeH3I_TCg3G9VesM-36" parent="rd5EqeH3I_TCg3G9VesM-3" style="text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;rounded=0;" value="TLS" vertex="1">
-          <mxGeometry height="30" width="60" x="200" y="380" as="geometry" />
+          <mxGeometry height="30" width="60" x="170" y="370" as="geometry" />
         </mxCell>
         <mxCell id="rd5EqeH3I_TCg3G9VesM-39" edge="1" parent="rd5EqeH3I_TCg3G9VesM-3" source="rd5EqeH3I_TCg3G9VesM-21" style="endArrow=classic;startArrow=classic;html=1;rounded=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;fillColor=#60a917;strokeColor=#2D7600;" target="rd5EqeH3I_TCg3G9VesM-20" value="">
           <mxGeometry height="50" relative="1" width="50" as="geometry">
