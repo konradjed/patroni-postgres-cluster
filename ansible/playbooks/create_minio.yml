@@ -110,6 +110,22 @@
         dest: /usr/local/bin/mcli
         mode: '0755'
 
+    - name: Create mcli CA dir
+      ansible.builtin.file:
+        path: /root/.mcli/certs/CAs
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Trust the cluster CA in mcli
+      ansible.builtin.copy:
+        src: ca.crt
+        dest: /root/.mcli/certs/CAs/ca.crt
+        owner: root
+        group: root
+        mode: '0644'
+
     - name: Create alias
       ansible.builtin.command:
         cmd: /usr/local/bin/mcli alias set patroni https://{{ ansible_host }}:9000 {{ minio_admin_username }} {{ minio_admin_password }}

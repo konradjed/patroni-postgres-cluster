@@ -1,5 +1,4 @@
 #!/bin/bash
-
 set -euo pipefail
 
 CERTS_DIR="../certs"
@@ -9,7 +8,8 @@ mkdir -p \
   "${CERTS_DIR}/postgres" \
   "${CERTS_DIR}/etcd" \
   "${CERTS_DIR}/patroni" \
-  "${CERTS_DIR}/dcs-client"
+  "${CERTS_DIR}/dcs-client" \
+  "${CERTS_DIR}/minio"
 
 openssl genrsa \
   -out "${CERTS_DIR}/ca/ca.key" \
@@ -21,7 +21,7 @@ openssl req -x509 -new -nodes \
   -days 7300 \
   -out "${CERTS_DIR}/ca/ca.crt"
 
-for name in pgsrv-${NODE_NAME} etcd-${NODE_NAME} patroni-${NODE_NAME} dcsclient-${NODE_NAME}; do
+for name in pgsrv-${NODE_NAME} etcd-${NODE_NAME} patroni-${NODE_NAME} dcsclient-${NODE_NAME} minio; do
   case "$name" in
     "pgsrv-${NODE_NAME}")
       eku="serverAuth"
@@ -39,9 +39,13 @@ for name in pgsrv-${NODE_NAME} etcd-${NODE_NAME} patroni-${NODE_NAME} dcsclient-
       eku="clientAuth"
       cert_dir="${CERTS_DIR}/dcs-client"
       ;;
+    "minio")
+      eku="serverAuth"
+      cert_dir="${CERTS_DIR}/minio"
+      ;;
   esac
 
-  for i in {1..3}; do
+  for i in {1..4}; do
     openssl genrsa \
       -out "${cert_dir}/${name}${i}.key" \
       2048
@@ -49,9 +53,21 @@ for name in pgsrv-${NODE_NAME} etcd-${NODE_NAME} patroni-${NODE_NAME} dcsclient-
     if [[ "$name" == "dcsclient-${NODE_NAME}" ]]; then
       cn="pg${i}-dcs-client"
       dns="pg${i}.client"
+    elif [[ "$name" == "minio" ]]; then
+      cn="minio"
+      dns="minio"
     else
       cn="pg${i}"
       dns="pg${i}"
+    fi
+    if [[ "$i" == 4 ]]; then
+      ip="192.168.172.140"
+    else
+      ip="192.168.172.10${i}"
+    fi
+
+    if [[ "$name" == "minio" && "$i" != 4 ]]; then
+      continue
     fi
 
     cat > "${CERTS_DIR}/temp.cnf" <<EOF
@@ -75,9 +91,10 @@ extendedKeyUsage = ${eku}
 subjectAltName = @alt_names
 
 [ alt_names ]
-IP.1 = 192.168.172.10${i}
+IP.1 = ${ip}
 IP.2 = 127.0.0.1
 DNS.1 = ${dns}
+DNS.2 = localhost
 EOF
 
     openssl req -new \

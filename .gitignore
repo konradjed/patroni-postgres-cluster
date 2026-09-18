@@ -53,3 +53,5 @@ id_ed25519_sk
 configs/
 harness/
 test/
+**/minio.license
+**/temp.cnf
