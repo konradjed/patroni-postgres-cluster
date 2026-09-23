@@ -3,3 +3,4 @@ ansible_become: true
 ansible_ssh_user: user
 patroni_s3_bucket_name: patroni-bucket
 patroni_s3_region: eu-central-1
+minio_alias: patroni
