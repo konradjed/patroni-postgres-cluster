@@ -1,0 +1,35 @@
+---
+
+- name: Install minio cli
+  ansible.builtin.get_url:
+    url: "https://dl.min.io/aistor/mc/release/linux-amd64/mc"
+    dest: /usr/local/bin/mcli
+    mode: '0755'
+
+- name: Create mcli CA dir
+  ansible.builtin.file:
+    path: /root/.mcli/certs/CAs
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Trust the cluster CA in mcli
+  ansible.builtin.copy:
+    src: ca.crt
+    dest: /root/.mcli/certs/CAs/ca.crt
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create alias
+  ansible.builtin.command:
+    cmd: /usr/local/bin/mcli alias set {{ minio_alias }} https://{{ ansible_host }}:9000 {{ minio_admin_username }} {{ minio_admin_password }}
+  changed_when: false
+
+- name: Create bucket
+  ansible.builtin.command:
+    cmd: /usr/local/bin/mcli mb {{ minio_alias }}/{{ minio_bucket_name }}
+  register: minio_bucket_creation
+  changed_when: minio_bucket_creation.rc == 0 and "Bucket created successfully patroni/{{ minio_bucket_name }}" in minio_bucket_creation.stdout
+  failed_when: minio_bucket_creation.rc != 0 and "Bucket created successfully patroni/{{ minio_bucket_name }}" not in minio_bucket_creation.stdout

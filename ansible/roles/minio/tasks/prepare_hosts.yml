@@ -1,0 +1,30 @@
+---
+
+- name: Set hostname
+  ansible.builtin.hostname:
+    name: "minio"
+    use: systemd
+
+- name: Install repository prerequisites
+  ansible.builtin.dnf:
+    name:
+      - curl
+      - firewalld
+      - python3-firewall
+      - python3
+    state: present
+  register: minio_repo_prereqs
+  retries: 5
+  delay: 15
+  until: minio_repo_prereqs is succeeded
+
+- name: Add ports
+  ansible.posix.firewalld:
+    zone: public
+    permanent: true
+    port: "{{ item }}"
+    state: enabled
+    immediate: true
+  loop:
+    - 9001/tcp
+    - 9000/tcp

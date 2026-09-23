@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: MIT-0
+galaxy_info:
+  author: Konrad Je
+  description: Create and configure minio storage
+  company: ERS
+  license: license (BSD-3-Clause, MIT)
+  min_ansible_version: 2.20.1
+  role_name: minio_create_configure
+  galaxy_tags: [minio, storage, s3]
+  platforms:
+    - name: Rocky
+      versions:
+        - "9.2"
+dependencies: []

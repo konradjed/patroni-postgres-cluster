@@ -1,6 +1,6 @@
 ---
 - name: Ping Test
-  hosts: psql
+  hosts: [psql, minio]
   tasks:
     - name: Ping psql hosts
       ping:

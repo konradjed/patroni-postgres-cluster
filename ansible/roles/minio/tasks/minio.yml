@@ -1,0 +1,79 @@
+- name: Download minio.rpm
+  ansible.builtin.uri:
+    follow_redirects: all
+    url: "https://dl.min.io/aistor/minio/release/linux-amd64/minio.rpm"
+    dest: "/tmp/minio.rpm"
+    status_code: [200, 304]
+
+- name: Install minio.rpm
+  ansible.builtin.dnf:
+    name: /tmp/minio.rpm
+    state: present
+    disable_gpg_check: true
+
+- name: Create minio config directory
+  ansible.builtin.file:
+    path: "{{ minio_config_dir }}"
+    state: directory
+    owner: minio-user
+    group: minio-user
+    mode: '0750'
+
+- name: Add license
+  ansible.builtin.copy:
+    src: minio.license
+    dest: "{{ minio_config_dir }}/minio.license"
+    owner: minio-user
+    group: minio-user
+    mode: '0640'
+
+- name: Configure minio
+  ansible.builtin.copy:
+    content: |
+        MINIO_LICENSE="{{ minio_config_dir }}/minio.license"
+        MINIO_VOLUMES="{{ minio_volumes }}"
+        MINIO_ROOT_USER="{{ minio_admin_username }}"
+        MINIO_ROOT_PASSWORD="{{ minio_admin_password }}"
+        MINIO_OPTS="--certs-dir {{ minio_config_dir }}/certs"
+    dest: /etc/default/minio
+    mode: '0640'
+    owner: minio-user
+    group: minio-user
+
+- name: Configure minio disk
+  ansible.builtin.file:
+    state: directory
+    path: "{{ minio_volumes }}"
+    owner: minio-user
+    group: minio-user
+    mode: '0750'
+
+- name: Create minio certs dir
+  ansible.builtin.file:
+    state: directory
+    path: "{{ item }}"
+    owner: minio-user
+    group: minio-user
+    mode: '0750'
+  loop:
+    - "{{ minio_config_dir }}/certs"
+    - "{{ minio_config_dir }}/certs/CAs"
+
+- name: Copy minio certs
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: minio-user
+    group: minio-user
+    mode: "{{ '0600' if item.src == 'private.key' else '0644' }}"
+  loop:
+    - { src: "public.crt", dest: "{{ minio_config_dir }}/certs/public.crt" }
+    - { src: "private.key", dest: "{{ minio_config_dir }}/certs/private.key" }
+    - { src: "ca.crt", dest: "{{ minio_config_dir }}/certs/CAs/ca.crt" }
+
+- name: Enable service
+  ansible.builtin.systemd_service:
+    state: started
+    enabled: true
+    name: minio.service
+  notify: Print Minio status

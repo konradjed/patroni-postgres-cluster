@@ -1,0 +1,7 @@
+# SPDX-License-Identifier: MIT-0
+---
+# vars file for minio
+
+minio_default_dir: /etc/
+minio_config_dir: /opt/minio
+minio_volumes: /mnt/drive-1/minio

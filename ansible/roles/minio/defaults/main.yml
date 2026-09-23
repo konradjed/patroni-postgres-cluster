@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MIT-0
+---
+# defaults file for minio
+
+minio_admin_username:
+minio_admin_password:
+
+minio_bucket_name: default-bucket
+minio_alias: dev

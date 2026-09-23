@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: MIT-0
+---
+# tasks file for minio
+
+- name: Check requirements
+  ansible.builtin.include_tasks: preflight.yml
+
+- name: Prepare hosts
+  ansible.builtin.include_tasks: prepare_hosts.yml
+
+- name: Install and configure minio
+  ansible.builtin.include_tasks: minio.yml
+
+- name: Create bucket
+  ansible.builtin.include_tasks: create_bucket.yml

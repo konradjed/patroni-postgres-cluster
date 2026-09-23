@@ -4,7 +4,7 @@
   become: true
   any_errors_fatal: true
   roles:
-    - role: patroni
+    - role: patroni_create
 
   post_tasks:
     - name: Are you leader
