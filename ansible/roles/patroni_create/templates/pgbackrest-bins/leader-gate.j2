@@ -2,9 +2,9 @@
 set -uo pipefail
 
 readonly URL="https://127.0.0.1:8008/patroni"
-readonly CA="{{ patroni_ca_cert_dir }}/ca.crt"
-readonly CERT="{{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt"
-readonly KEY="{{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.key"
+readonly CA="{{ patroni_create_vars_ca_cert_dir }}/ca.crt"
+readonly CERT="{{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt"
+readonly KEY="{{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.key"
 readonly BODY="$(mktemp)"
 trap 'rm -f "$BODY"' EXIT
 

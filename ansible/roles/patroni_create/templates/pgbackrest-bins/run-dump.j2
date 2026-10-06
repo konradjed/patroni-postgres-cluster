@@ -1,19 +1,47 @@
 #!/usr/bin/env bash
-set -uo pipefail
+set -euo pipefail
 
-readonly DB="{{ patroni_app_db_name }}"
-readonly PREFIX="{{ patroni_dump_prefix }}"
-readonly KEEP={{ patroni_dump_retention }}
-readonly PASSFILE="{{ patroni_dump_pass_file_location }}"
+readonly DB="{{ patroni_create_app_db_name }}"
+readonly PREFIX="{{ patroni_create_dump_prefix }}"
+readonly KEEP={{ patroni_create_dump_retention }}
 readonly GATE=/usr/local/lib/patroni/leader-gate
+readonly BAO_READ=/usr/local/libexec/patroni/bao-read
 readonly S3_CLIENT=/usr/local/lib/patroni/s3-client.py
 
-"$GATE"
-case $? in
-  0) ;;
-  1) echo "Not the leader; no dump taken on this node."; exit 0 ;;
-  *) echo "Refusing to run: leadership could not be determined." >&2; exit 1 ;;
-esac
+if "$GATE"; then
+  :
+else
+  gate_status=$?
+  case "$gate_status" in
+    1) echo "Not the leader; no dump taken on this node."; exit 0 ;;
+    *) echo "Refusing to run: leadership could not be determined." >&2; exit 1 ;;
+  esac
+fi
+
+PATRONI_DUMP_CIPHER_PASS="$(
+  "$BAO_READ" \
+    {{ patroni_create_bao_pgdump_path | quote }} \
+    cipher_pass
+)"
+
+AWS_ACCESS_KEY_ID="$(
+  "$BAO_READ" \
+    {{ patroni_create_bao_s3_path | quote }} \
+    access_key
+)"
+
+AWS_SECRET_ACCESS_KEY="$(
+  "$BAO_READ" \
+    {{ patroni_create_bao_s3_path | quote }} \
+    secret_key
+)"
+
+if [[ -z "$PATRONI_DUMP_CIPHER_PASS" ||
+      -z "$AWS_ACCESS_KEY_ID" ||
+      -z "$AWS_SECRET_ACCESS_KEY" ]]; then
+  echo "One or more dump secrets received from OpenBao are empty" >&2
+  exit 1
+fi
 
 workdir="$(mktemp -d)"
 trap 'rm -rf "$workdir"' EXIT
@@ -21,20 +49,28 @@ stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 readonly OBJECT="$PREFIX/${DB}-${stamp}.dump.enc"
 
 echo "Leader confirmed; dumping $DB."
-pg_dump --format=custom --dbname="$DB" --username=dumper --file="$workdir/dump" \
+{{ patroni_create_vars_postgres_bin | quote }}/pg_dump --format=custom --dbname="$DB" --username=dumper --file="$workdir/dump" \
   || { echo "pg_dump failed; nothing uploaded." >&2; exit 1; }
 
+export PATRONI_DUMP_CIPHER_PASS
+export AWS_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY
+
 openssl enc -aes-256-cbc -pbkdf2 -salt \
-  -in "$workdir/dump" -out "$workdir/dump.enc" -pass "file:$PASSFILE" \
+  -in "$workdir/dump" -out "$workdir/dump.enc" -pass env:PATRONI_DUMP_CIPHER_PASS \
   || { echo "encryption failed; nothing uploaded." >&2; exit 1; }
 
 echo "Uploading $OBJECT ($(stat -c%s "$workdir/dump.enc") bytes)."
 "$S3_CLIENT" put "$workdir/dump.enc" "$OBJECT" || { echo "upload failed." >&2; exit 1; }
 
-keys="$("$S3_CLIENT" list "$PREFIX/" | sort)"
-total="$(printf '%s\n' "$keys" | grep -c . || true)"
+keys_file="$workdir/keys"
+"$S3_CLIENT" list "$PREFIX/" | sort > "$keys_file" \
+  || { echo "listing dumps failed." >&2; exit 1; }
+
+mapfile -t keys < "$keys_file"
+total="${#keys[@]}"
 if (( total > KEEP )); then
-  printf '%s\n' "$keys" | head -n "$(( total - KEEP ))" | while IFS= read -r old; do
+  for old in "${keys[@]:0:$(( total - KEEP ))}"; do
     [[ -z "$old" ]] && continue
     echo "Expiring old dump: $old"
     "$S3_CLIENT" delete "$old" || true

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-readonly STANZA="{{ patroni_cluster_name }}"
+readonly STANZA="{{ patroni_create_cluster_name }}"
 readonly GATE=/usr/local/lib/patroni/leader-gate
 
 case "${1:-}" in
@@ -18,4 +18,4 @@ case $? in
 esac
 
 echo "Leader confirmed; taking a $TYPE backup of stanza $STANZA."
-exec pgbackrest --stanza="$STANZA" --type="$TYPE" backup
+exec /usr/local/libexec/patroni/pgbackrest-wrapper --stanza="$STANZA" --type="$TYPE" backup

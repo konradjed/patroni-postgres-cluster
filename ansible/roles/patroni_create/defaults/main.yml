@@ -1,18 +1,18 @@
 # SPDX-License-Identifier: MIT-0
 ---
 # defaults file for patroni
-patroni_app_cidrs: []
-patroni_management_cidr: ""
-patroni_inventory_group: psql
-patroni_firewall_zone: patroni
-patroni_firewall_ports:
+patroni_create_app_cidrs: []
+patroni_create_management_cidr: ""
+patroni_create_inventory_group: psql
+patroni_create_firewall_zone: patroni
+patroni_create_firewall_ports:
   - 2379
   - 2380
   - 5432
   - 8008
 
-patroni_volume_fstype: xfs
-patroni_data_volumes:
+patroni_create_volume_fstype: xfs
+patroni_create_data_volumes:
   - name: pgdata
     device:              # device id
     path: /var/lib/pgsql
@@ -24,31 +24,37 @@ patroni_data_volumes:
     gib: 5
     owner: etcd
 
-patroni_pg_token: PostgreSQL_HA_Cluster
-patroni_cluster_name: pg_cluster
-patroni_app_db_name: app
-patroni_s3_prefix: /pgbackrest
-patroni_s3_bucket_name: patroni-bucket
-patroni_s3_endpoint: 192.168.172.140
-patroni_s3_port: 9000
-patroni_s3_region: eu-central-1
+patroni_create_pg_token: PostgreSQL_HA_Cluster
+patroni_create_cluster_name: pg_cluster
+patroni_create_app_db_name: app
+patroni_create_s3_prefix: /pgbackrest
+patroni_create_s3_bucket_name: patroni-bucket
+patroni_create_s3_endpoint: 192.168.172.140
+patroni_create_s3_port: 9000
+patroni_create_s3_region: eu-central-1
 
-patroni_on_boot_full_backup: 3min
-patroni_interval_full_backup: 30min
-patroni_on_boot_incr_backup: 5min
-patroni_interval_incr_backup: 2min
-patroni_on_boot_dump: 7min
-patroni_interval_dump: 15min
-patroni_dump_retention: 3
-patroni_dump_prefix: pgdump
-patroni_dump_pass_file_location: /etc/pgbackrest/dump.pass
+patroni_create_on_boot_full_backup: 3min
+patroni_create_interval_full_backup: 30min
+patroni_create_on_boot_incr_backup: 5min
+patroni_create_interval_incr_backup: 2min
+patroni_create_on_boot_dump: 7min
+patroni_create_interval_dump: 15min
+patroni_create_dump_retention: 3
+patroni_create_dump_prefix: pgdump
 
-patroni_replicator_password: ""
-patroni_postgres_password: ""
-patroni_minio_key: ""
-patroni_minio_secret: ""
-patroni_repo_cipher_pass: ""
-patroni_dump_cipher_pass: ""
+patroni_create_bao_secret_namespace: patroni
+patroni_create_bao_auth_path: patroni-cert
+patroni_create_bao_address: https://192.168.172.160:8200
+patroni_create_bao_token_path: /run/openbao-agent/token
+patroni_create_bao_secrets_mount: patroni-secrets
+patroni_create_bao_cluster_path: pg_cluster
+patroni_create_bao_token_wait_timeout: 120
+patroni_create_bao_postgres_password_path: pg_cluster/shared/postgresql/postgres
+patroni_create_bao_replicator_password_path: pg_cluster/shared/postgresql/replicator
+patroni_create_bao_app_user_password_path: pg_cluster/shared/postgresql/app_user
+patroni_create_bao_pgbackrest_path: "{{ patroni_create_bao_cluster_path }}/shared/pgbackrest"
+patroni_create_bao_pgdump_path: "{{ patroni_create_bao_cluster_path }}/shared/pgdump"
+patroni_create_bao_s3_path: "{{ patroni_create_bao_cluster_path }}/shared/s3"
 
 
 # ==============================================================================
@@ -61,5 +67,5 @@ patroni_dump_cipher_pass: ""
 # TRUE REMOVES POSTGRESQL DATA, THE LOCAL WAL ARCHIVE, AND THE COMPLETE LOCAL
 # ETCD/DCS STATE ON EVERY SELECTED HOST. ALWAYS TARGET THE FULL CLUSTER.
 # ==============================================================================
-patroni_wipe_existing_cluster: false
+patroni_create_wipe_existing_cluster: false
 # ==============================================================================

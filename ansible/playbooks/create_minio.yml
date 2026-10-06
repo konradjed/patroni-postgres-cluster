@@ -6,4 +6,4 @@
   roles:
     - role: minio
       vars:
-        minio_bucket_name: "{{ patroni_s3_bucket_name }}"
+        minio_bucket_name: "{{ patroni_create_s3_bucket_name }}"

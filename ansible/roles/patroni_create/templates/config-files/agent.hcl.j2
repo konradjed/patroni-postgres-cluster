@@ -1,0 +1,28 @@
+vault {
+  address = "{{ patroni_create_bao_address }}"
+  ca_cert = "{{ patroni_create_vars_ca_cert_dir }}/ca.crt"
+}
+
+auto_auth {
+  method {
+    type       = "cert"
+    mount_path = "auth/{{ patroni_create_bao_auth_path }}"
+    namespace  = "{{ patroni_create_bao_secret_namespace }}"
+
+    config = {
+      name        = "{{ inventory_hostname }}"
+      ca_cert     = "{{ patroni_create_vars_ca_cert_dir }}/ca.crt"
+      client_cert = "{{ patroni_create_vars_openbao_cert_dir }}/ob-client-{{ inventory_hostname }}.crt"
+      client_key  = "{{ patroni_create_vars_openbao_cert_dir }}/ob-client-{{ inventory_hostname }}.key"
+      reload      = true
+    }
+  }
+
+  sink {
+    type = "file"
+    config = {
+      path = "{{ patroni_create_bao_token_path }}"
+      mode = 0640
+    }
+  }
+}  

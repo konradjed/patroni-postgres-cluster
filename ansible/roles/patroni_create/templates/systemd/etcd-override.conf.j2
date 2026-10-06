@@ -1,0 +1,12 @@
+### Editing /etc/systemd/system/etcd.service.d/override.conf
+[Unit]
+Requires=patroni-unlock-volumes.service
+After=network-online.target patroni-unlock-volumes.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+RequiresMountsFor={{ patroni_create_vars_etcd_data_dir }}
+
+[Service]
+ExecStartPre=/usr/local/sbin/patroni-require-volume {{ patroni_create_vars_etcd_data_dir }} /dev/mapper/patroni-{{ patroni_create_vars_etcd_volume_name }}
+Restart=always
+RestartSec=5

@@ -1,0 +1,22 @@
+[Unit]
+Description=Runners to orchestrate a high-availability PostgreSQL
+Requires=patroni-unlock-volumes.service etcd.service
+After=network-online.target patroni-unlock-volumes.service etcd.service
+Wants=network-online.target
+RequiresMountsFor={{ patroni_create_vars_postgres_main_dir }}
+
+[Service]
+Type=simple 
+User=postgres
+Group=postgres
+RuntimeDirectory=patroni
+RuntimeDirectoryMode=0700
+ExecStartPre=/usr/local/sbin/patroni-require-volume {{ patroni_create_vars_postgres_main_dir }} /dev/mapper/patroni-{{ patroni_create_vars_postgres_volume_name }}
+ExecStart=/usr/local/libexec/patroni/patroni-wrapper
+ExecReload=/bin/kill -s HUP $MAINPID 
+KillMode=process 
+TimeoutSec=30 
+Restart={{ patroni_create_vars_patroni_restart_svc_type }}
+
+[Install]
+WantedBy=multi-user.target

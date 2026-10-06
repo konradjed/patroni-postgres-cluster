@@ -1,37 +1,36 @@
 # SPDX-License-Identifier: MIT-0
 ---
 # vars file for patroni
-patroni_ca_cert_dir: /etc/pki/patroni
-patroni_etcd_data_dir: /var/lib/etcd
-patroni_etcd_ssl: /etc/etcd/ssl
-patroni_patroni_config_yaml: /etc/patroni/patroni.yml
-patroni_patroni_ssl: /etc/patroni/ssl
-patroni_patroni_ssl_client: /etc/patroni/dcs-client
-patroni_patroni_bin: /usr/bin/patroni
-patroni_patroni_restart_svc_type: 'on-failure'
-patroni_pgbackup_path: /var/lib/pgsql/archived
-patroni_postgres_data_dir: /var/lib/pgsql/18/data
-patroni_postgres_main_dir: /var/lib/pgsql
-patroni_postgres_socket: /var/run/postgresql
-patroni_postgres_bin: /usr/pgsql-18/bin
-patroni_postgres_ssl: /var/lib/pgsql/18/ssl
-patroni_vars_replicator_password: "{{ patroni_replicator_password }}"
-patroni_vars_postgres_password: "{{ patroni_postgres_password }}"
-patroni_pgbackrest_data_dir: /var/lib/pgbackrest
-patroni_pgbackrest_log_dir: /var/log/pgbackrest
-patroni_luks_key_dir: /etc/luks/luks-keys
-patroni_postgres_volume_name: >-
+patroni_create_vars_ca_cert_dir: /etc/pki/patroni
+patroni_create_vars_etcd_data_dir: /var/lib/etcd
+patroni_create_vars_etcd_ssl: /etc/etcd/ssl
+patroni_create_vars_patroni_config_yaml: /etc/patroni/patroni.yml
+patroni_create_vars_patroni_ssl: /etc/patroni/ssl
+patroni_create_vars_patroni_ssl_client: /etc/patroni/dcs-client
+patroni_create_vars_patroni_bin: /usr/bin/patroni
+patroni_create_vars_patroni_restart_svc_type: 'on-failure'
+patroni_create_vars_pgbackup_path: /var/lib/pgsql/archived
+patroni_create_vars_postgres_data_dir: /var/lib/pgsql/18/data
+patroni_create_vars_postgres_main_dir: /var/lib/pgsql
+patroni_create_vars_postgres_socket: /var/run/postgresql
+patroni_create_vars_postgres_bin: /usr/pgsql-18/bin
+patroni_create_vars_postgres_ssl: /var/lib/pgsql/18/ssl
+patroni_create_vars_pgbackrest_data_dir: /var/lib/pgbackrest
+patroni_create_vars_pgbackrest_log_dir: /var/log/pgbackrest
+patroni_create_vars_postgres_volume_name: >-
   {{
-    patroni_data_volumes
-    | selectattr('path', 'equalto', patroni_postgres_main_dir)
+    patroni_create_data_volumes
+    | selectattr('path', 'equalto', patroni_create_vars_postgres_main_dir)
     | map(attribute='name')
     | first
   }}
 
-patroni_etcd_volume_name: >-
+patroni_create_vars_etcd_volume_name: >-
   {{
-    patroni_data_volumes
-    | selectattr('path', 'equalto', patroni_etcd_data_dir)
+    patroni_create_data_volumes
+    | selectattr('path', 'equalto', patroni_create_vars_etcd_data_dir)
     | map(attribute='name')
     | first
   }}
+patroni_create_vars_openbao_cert_dir: /etc/openbao-agent/tls
+patroni_create_vars_openbao_config_dir: /etc/openbao-agent

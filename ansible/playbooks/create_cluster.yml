@@ -9,12 +9,12 @@
   post_tasks:
     - name: Are you leader
       ansible.builtin.command: /usr/local/lib/patroni/leader-gate
-      register: leader
+      register: patroni_playbook_leader
       changed_when: false
-      failed_when: leader.rc == 2
+      failed_when: patroni_playbook_leader.rc == 2
 
     - name: Create example database
-      when: leader.rc == 0
+      when: patroni_playbook_leader.rc == 0
       block:
 
         - name: Copy SQL file
@@ -26,18 +26,30 @@
             mode: '0600'
           no_log: true
 
-        - name: Load SQL file
-          ansible.builtin.command: >-
-            /usr/pgsql-18/bin/psql --no-psqlrc --set=ON_ERROR_STOP=1
-            --file=/var/lib/pgsql/appdb.sql
+        - name: Load SQL file using application password from OpenBao
+          ansible.builtin.shell: |
+            set -euo pipefail
+
+            export PATRONI_APP_PASSWORD
+
+            PATRONI_APP_PASSWORD="$(
+              /usr/local/libexec/patroni/bao-read \
+                {{ patroni_create_bao_app_user_password_path | quote }} \
+                password
+            )"
+
+            if [[ -z "$PATRONI_APP_PASSWORD" ]]; then
+              echo "Application user password received from OpenBao is empty" >&2
+              exit 1
+            fi
+
+            exec /usr/pgsql-18/bin/psql \
+              --no-psqlrc \
+              --set=ON_ERROR_STOP=1 \
+              --file=/var/lib/pgsql/appdb.sql
+          args:
+            executable: /bin/bash
           become_user: postgres
-          environment:
-            PATRONI_APP_PASSWORD: "{{ patroni_app_user_password }}"
           changed_when: true
           diff: false
           no_log: true
-      always:
-        - name: clean up
-          ansible.builtin.file:
-            path: /var/lib/pgsql/appdb.sql
-            state: absent

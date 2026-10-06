@@ -1,4 +1,4 @@
-patroni_data_volumes:
+patroni_create_data_volumes:
   - name: pgdata
     device: /dev/disk/by-id/nvme-eui.13f02ebf67b9a3f5000c29693b0e6f75
     path: /var/lib/pgsql

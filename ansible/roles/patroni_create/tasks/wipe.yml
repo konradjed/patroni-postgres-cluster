@@ -1,8 +1,27 @@
 ---
 
 - name: Wipe postgres data and WAL archive
-  when: patroni_wipe_existing_cluster | bool
+  when: patroni_create_wipe_existing_cluster | bool
   block:
+    - name: Stop and disable backup timers before wiping
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+        enabled: false
+      loop:
+        - patroni-full-backup.timer
+        - patroni-incre-backup.timer
+        - patroni-pgdump.timer
+
+    - name: Stop active backup and dump jobs before wiping
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+      loop:
+        - patroni-backup@full.service
+        - patroni-backup@incr.service
+        - patroni-pgdump.service
+
     - name: Ensure volume verification helper is installed
       ansible.builtin.copy:
         src: patroni-require-volume
@@ -18,15 +37,15 @@
           - "{{ item.path }}"
           - "/dev/mapper/patroni-{{ item.name }}"
       changed_when: false
-      loop: "{{ patroni_data_volumes }}"
+      loop: "{{ patroni_create_data_volumes }}"
       loop_control:
         label: >-
           {{ item.path }} <- /dev/mapper/patroni-{{ item.name }}
 
     - name: Check for existing Patroni config
       ansible.builtin.stat:
-        path: "{{ patroni_patroni_config_yaml }}"
-      register: patroni_config
+        path: "{{ patroni_create_vars_patroni_config_yaml }}"
+      register: patroni_playbook_config
       run_once: true
 
     - name: Read cluster state
@@ -34,19 +53,19 @@
         url: "https://{{ ansible_host }}:8008/cluster"
         method: GET
         return_content: true
-        client_cert: "{{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt"
-        client_key: "{{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.key"
-        ca_path: "{{ patroni_ca_cert_dir }}/ca.crt"
-      register: patroni_cluster_state
+        client_cert: "{{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt"
+        client_key: "{{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.key"
+        ca_path: "{{ patroni_create_vars_ca_cert_dir }}/ca.crt"
+      register: patroni_playbook_cluster_state
       changed_when: false
       failed_when: false
       run_once: true
-      when: patroni_config.stat.exists
+      when: patroni_playbook_config.stat.exists
 
     - name: Find the current leader
       ansible.builtin.set_fact:
-        patroni_dcs_leader: >-
-          {{ patroni_cluster_state.json.members
+        patroni_playbook_dcs_leader: >-
+          {{ patroni_playbook_cluster_state.json.members
             | default([])
             | selectattr('role', 'in', ['leader', 'standby_leader'])
             | map(attribute='name')
@@ -60,22 +79,22 @@
       failed_when: false
 
     - name: Remove cluster from DCS
-      ansible.builtin.command: patronictl -c {{ patroni_patroni_config_yaml }} remove {{ patroni_cluster_name }}
+      ansible.builtin.command: patronictl -c {{ patroni_create_vars_patroni_config_yaml }} remove {{ patroni_create_cluster_name }}
       args:
-        stdin: "{{ patroni_cluster_name }}\nYes I am aware\n{{ patroni_dcs_leader }}"
-      register: patroni_remove
+        stdin: "{{ patroni_create_cluster_name }}\nYes I am aware\n{{ patroni_playbook_dcs_leader }}"
+      register: patroni_playbook_remove
       failed_when: false
-      changed_when: patroni_remove.rc == 0
+      changed_when: patroni_playbook_remove.rc == 0
       run_once: true
-      when: patroni_config.stat.exists
+      when: patroni_playbook_config.stat.exists
 
     - name: Remove postgres data and WAL
       ansible.builtin.file:
         path: "{{ item }}"
         state: absent
       loop:
-        - "{{ patroni_postgres_data_dir }}/"
-        - "{{ patroni_pgbackup_path }}/"
+        - "{{ patroni_create_vars_postgres_data_dir }}/"
+        - "{{ patroni_create_vars_pgbackup_path }}/"
 
     - name: Stop etcd before wiping
       ansible.builtin.systemd_service:
@@ -85,10 +104,10 @@
 
     - name: Unmount etcd data volume
       ansible.posix.mount:
-        path: "{{ patroni_etcd_data_dir }}"
+        path: "{{ patroni_create_vars_etcd_data_dir }}"
         state: unmounted
 
     - name: Remove etcd data directory
       ansible.builtin.file:
-        path: "{{ patroni_etcd_data_dir }}"
+        path: "{{ patroni_create_vars_etcd_data_dir }}"
         state: absent

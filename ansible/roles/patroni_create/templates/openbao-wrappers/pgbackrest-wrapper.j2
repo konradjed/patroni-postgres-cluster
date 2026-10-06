@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly BAO_READ=/usr/local/libexec/patroni/bao-read
+
+PGBACKREST_REPO1_CIPHER_PASS="$(
+    "$BAO_READ" \
+        {{ patroni_create_bao_pgbackrest_path | quote }} \
+        cipher_pass
+)"
+
+PGBACKREST_REPO1_S3_KEY="$(
+    "$BAO_READ" \
+        {{ patroni_create_bao_s3_path | quote }} \
+        access_key
+)"
+
+PGBACKREST_REPO1_S3_KEY_SECRET="$(
+    "$BAO_READ" \
+        {{ patroni_create_bao_s3_path | quote }} \
+        secret_key
+)"
+
+if [[ -z "$PGBACKREST_REPO1_CIPHER_PASS" ||
+      -z "$PGBACKREST_REPO1_S3_KEY" ||
+      -z "$PGBACKREST_REPO1_S3_KEY_SECRET" ]]; then
+    echo "One or more pgBackRest secrets received from OpenBao are empty" >&2
+    exit 1
+fi
+
+export PGBACKREST_REPO1_CIPHER_PASS
+export PGBACKREST_REPO1_S3_KEY
+export PGBACKREST_REPO1_S3_KEY_SECRET
+
+exec /usr/bin/pgbackrest "$@"

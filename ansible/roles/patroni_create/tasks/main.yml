@@ -17,6 +17,11 @@
 - name: Prepare system
   ansible.builtin.include_tasks: prepare_hosts.yml
 
+# Install and configure the OpenBao Agent, authenticate the node with its
+# client certificate, and verify access to all secrets required by the role.
+- name: Configure openbao agent
+  ansible.builtin.include_tasks: bao_agent.yml
+
 # Validate the configured block devices, provision/open LUKS2 containers,
 # create filesystems, manage crypttab and mount the PostgreSQL and etcd volumes.
 - name: Encrypt data volumes

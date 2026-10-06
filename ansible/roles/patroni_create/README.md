@@ -12,7 +12,7 @@ Configuration changes on a running cluster are handled by a separate role.
 > 🔴 **Cluster recreation is a deliberate and irreversible operational
 > decision.** It must be explicitly reviewed and agreed with the application
 > owners and the operators responsible for the database, storage, and backups
-> before `patroni_wipe_existing_cluster` is enabled.
+> before `patroni_create_wipe_existing_cluster` is enabled.
 
 The role assumes full control of PostgreSQL and etcd data, dedicated data
 disks, firewalld, `/etc/crypttab`, and the relevant systemd units.
@@ -85,7 +85,7 @@ ansible-galaxy collection install -r collections/requirements.yml
 - Rocky Linux 9 with systemd.
 - Access to the configured package repositories.
 - Support for LUKS2, XFS, and the `softdog` module.
-- Dedicated disks matching `patroni_data_volumes`.
+- Dedicated disks matching `patroni_create_data_volumes`.
 - Access to the configured S3 bucket.
 
 The topology is designed for exactly three PostgreSQL/etcd nodes. These should
@@ -107,7 +107,7 @@ servers:
           ansible_host: "<db-node-3-ip>"  # Replace with the third node address.
 ```
 
-Every member of `patroni_inventory_group` is used when generating the etcd
+Every member of `patroni_create_inventory_group` is used when generating the etcd
 initial cluster, PostgreSQL replication rules, firewall rules, and Patroni DCS
 endpoint list.
 
@@ -116,33 +116,76 @@ endpoint list.
 > [!IMPORTANT]
 > The role intentionally stops cluster services, controls the host firewall,
 > writes `/etc/crypttab`, and may erase the block devices declared in
-> `patroni_data_volumes`. Review all values below for every host before running
+> `patroni_create_data_volumes`. Review all values below for every host before running
 > the playbook.
 
-### Secrets required by preflight
+### Secrets required before provisioning
 
-Preflight refuses to continue when any of these variables is empty:
+PostgreSQL passwords, LUKS keys, S3 credentials, and backup encryption
+passphrases must exist in OpenBao before the role runs. The OpenBao Agent
+authenticates each node, and the role verifies that every required field is
+readable and non-empty before configuring the cluster. These values are not
+supplied as Ansible variables.
 
-| Variable | Why it is required | Persistence requirement |
+### OpenBao secret layout
+
+The target OpenBao layout uses the dedicated namespace and two KV v2 secrets
+engines:
+
+| Secrets engine (mount) | Purpose |
+| --- | --- |
+| `patroni-secrets` | LUKS keys, backup and dump passphrases, object-storage credentials, and PostgreSQL passwords. |
+| `pg-tde` | Database principal keys managed directly by the `pg_tde` extension. Create the empty KV v2 engine, but do not create its secrets manually. |
+
+Create the following secret paths and fields:
+
+| Secret path inside `patroni-secrets` | Field name | Contents |
 | --- | --- | --- |
-| `patroni_postgres_password` | Password of the PostgreSQL `postgres` superuser managed by Patroni. | Keep for administration and disaster recovery. |
-| `patroni_replicator_password` | Password used by Patroni members for streaming replication. | Must remain identical and available across the cluster. |
-| `patroni_minio_key` | S3 access key used by pgBackRest and logical dump uploads. | Rotate together with the configured object-storage account. |
-| `patroni_minio_secret` | S3 secret key. | Treat as a credential and store only in an encrypted secret source. |
-| `patroni_repo_cipher_pass` | Passphrase used to encrypt the pgBackRest repository. | Losing it makes retained physical backups unusable. |
-| `patroni_dump_cipher_pass` | Passphrase used by OpenSSL to encrypt logical dumps. | Losing it makes retained logical dumps unusable. |
+| `pg_cluster/nodes/pg1/luks/pgdata` | `key_b64` | Base64-encoded LUKS key for the PostgreSQL volume on `pg1`. |
+| `pg_cluster/nodes/pg1/luks/etcd` | `key_b64` | Base64-encoded LUKS key for the etcd volume on `pg1`. |
+| `pg_cluster/nodes/pg2/luks/pgdata` | `key_b64` | Base64-encoded LUKS key for the PostgreSQL volume on `pg2`. |
+| `pg_cluster/nodes/pg2/luks/etcd` | `key_b64` | Base64-encoded LUKS key for the etcd volume on `pg2`. |
+| `pg_cluster/nodes/pg3/luks/pgdata` | `key_b64` | Base64-encoded LUKS key for the PostgreSQL volume on `pg3`. |
+| `pg_cluster/nodes/pg3/luks/etcd` | `key_b64` | Base64-encoded LUKS key for the etcd volume on `pg3`. |
+| `pg_cluster/shared/pgbackrest` | `cipher_pass` | Shared pgBackRest repository encryption passphrase. |
+| `pg_cluster/shared/pgdump` | `cipher_pass` | Independent logical-dump encryption passphrase. |
+| `pg_cluster/shared/s3` | `access_key`, `secret_key` | Credentials for the S3-compatible backup storage. |
+| `pg_cluster/shared/postgresql/postgres` | `password` | PostgreSQL superuser password. |
+| `pg_cluster/shared/postgresql/replicator` | `password` | Streaming-replication password. |
+| `pg_cluster/shared/postgresql/app_user` | `password` | Application-role password. |
 
-Store these values in Ansible Vault or another encrypted variable source. Do
-not place plaintext credentials in role defaults, inventory, or Git.
+> [!IMPORTANT]
+> Each cluster node must have a separate LUKS secret for every encrypted
+> volume. The paths follow the pattern
+> `<cluster-secret-root>/nodes/<node-name>/luks/<volume-name>`. The node name
+> must exactly match the name used for that node in the Ansible inventory, and
+> the volume name must exactly match its identifier in the node's storage
+> configuration. These names are case-sensitive. For example, node `pg1` and
+> volume `pgdata` use `pg_cluster/nodes/pg1/luks/pgdata`.
 
-`patroni_app_user_password` is also required by the final application-database
-bootstrap step. It is not currently part of the preflight assertion, so an
-undefined value fails later when the leader executes the SQL bootstrap. Store
-it with the other secrets.
+The resulting structure is:
 
+```text
+namespace: patroni
+
+patroni-secrets/
+└── pg_cluster/
+    ├── nodes/
+    │   ├── pg1/luks/{pgdata,etcd}
+    │   ├── pg2/luks/{pgdata,etcd}
+    │   └── pg3/luks/{pgdata,etcd}
+    └── shared/
+        ├── pgbackrest
+        ├── pgdump
+        ├── s3
+        └── postgresql/{postgres,replicator,app_user}
+
+pg-tde/
+└── keys created and maintained by pg_tde
+```
 ### Data volumes required by preflight
 
-`patroni_data_volumes` is required on every cluster host. Preflight checks that
+`patroni_create_data_volumes` is required on every cluster host. Preflight checks that
 each item provides a non-empty `name`, `device`, `path`, positive `gib`, and
 `owner`. The LUKS stage subsequently checks that `device` exists, is a whole
 block disk, and matches the declared size within a 2% tolerance.
@@ -153,7 +196,7 @@ such as `/dev/nvme0n2` and never a partition ending in `-partN`.
 Example host-specific configuration:
 
 ```yaml
-patroni_data_volumes:
+patroni_create_data_volumes:
   - name: pgdata
     device: /dev/disk/by-id/<postgres-device-id>  # Stable ID on this host.
     path: /var/lib/pgsql
@@ -174,12 +217,12 @@ patroni_data_volumes:
 
 ### LUKS key material
 
-LUKS key files are generated automatically under `/etc/luks/luks-keys` and are
-referenced from the managed `/etc/crypttab`. They are not input variables, but
-they remain critical secrets for accessing a currently deployed volume and
-must be protected through an approved secret-recovery mechanism. This
-create/recreate role does not adopt an existing LUKS volume: without explicit
-recreation it rejects one, while recreation replaces its key and contents.
+LUKS keys are read from the node-specific OpenBao paths documented above. The
+role decodes `key_b64` directly into `cryptsetup`; it does not create a local
+key file. At boot, `patroni-unlock-volumes.service` waits for the OpenBao Agent
+token, opens both mappings and mounts the filesystems before etcd and Patroni
+start. Renaming a node or volume requires creating the corresponding OpenBao
+path before provisioning.
 
 ## Role variables
 
@@ -187,27 +230,27 @@ recreation it rejects one, while recreation replaces its key and contents.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `patroni_cluster_name` | `pg_cluster` | Patroni scope, PostgreSQL cluster name, and pgBackRest stanza name. |
-| `patroni_pg_token` | `PostgreSQL_HA_Cluster` | etcd token used when forming the initial cluster. |
-| `patroni_inventory_group` | `psql` | Inventory group containing all Patroni and etcd nodes. |
-| `patroni_management_cidr` | empty | IPv4 source allowed to use SSH. Set it before deployment; use `/32` for one address. |
-| `patroni_app_cidrs` | `[]` | IPv4 CIDRs allowed to connect as `app_user` on TCP 5432. Corresponding `pg_hba` entries are generated. |
-| `patroni_firewall_zone` | `patroni` | Managed firewalld zone. The role gives it a `DROP` target and makes it the default zone. |
-| `patroni_firewall_ports` | `2379`, `2380`, `5432`, `8008` | TCP ports allowed between cluster nodes: etcd client, etcd peer, PostgreSQL, and Patroni REST API. |
+| `patroni_create_cluster_name` | `pg_cluster` | Patroni scope, PostgreSQL cluster name, and pgBackRest stanza name. |
+| `patroni_create_pg_token` | `PostgreSQL_HA_Cluster` | etcd token used when forming the initial cluster. |
+| `patroni_create_inventory_group` | `psql` | Inventory group containing all Patroni and etcd nodes. |
+| `patroni_create_management_cidr` | empty | IPv4 source allowed to use SSH. Set it before deployment; use `/32` for one address. |
+| `patroni_create_app_cidrs` | `[]` | IPv4 CIDRs allowed to connect as `app_user` on TCP 5432. Corresponding `pg_hba` entries are generated. |
+| `patroni_create_firewall_zone` | `patroni` | Managed firewalld zone. The role gives it a `DROP` target and makes it the default zone. |
+| `patroni_create_firewall_ports` | `2379`, `2380`, `5432`, `8008` | TCP ports allowed between cluster nodes: etcd client, etcd peer, PostgreSQL, and Patroni REST API. |
 
 ### Storage and encryption
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `patroni_volume_fstype` | `xfs` | Filesystem created inside each LUKS mapper. It is passed to `mkfs.<value>`. |
-| `patroni_data_volumes` | See below | Dedicated volumes. Each item defines a stable whole-disk `device`, mapper `name`, mount `path`, expected size in `gib`, and filesystem `owner`. Mapper names are generated as `patroni-<name>`. Override this list per host. |
-| `patroni_wipe_existing_cluster` | `false` | When `true`, removes the DCS entry and PostgreSQL, WAL archive, and etcd data. It does not remove the remote backup repository. |
+| `patroni_create_volume_fstype` | `xfs` | Filesystem created inside each LUKS mapper. It is passed to `mkfs.<value>`. |
+| `patroni_create_data_volumes` | See below | Dedicated volumes. Each item defines a stable whole-disk `device`, mapper `name`, mount `path`, expected size in `gib`, and filesystem `owner`. Mapper names are generated as `patroni-<name>`. Override this list per host. |
+| `patroni_create_wipe_existing_cluster` | `false` | When `true`, removes the DCS entry and PostgreSQL, WAL archive, and etcd data. It does not remove the remote backup repository. |
 
 Default layout:
 
 ```yaml
-patroni_volume_fstype: xfs
-patroni_data_volumes:
+patroni_create_volume_fstype: xfs
+patroni_create_data_volumes:
   - name: pgdata
     device:
     path: /var/lib/pgsql
@@ -227,69 +270,59 @@ additional validation constraint.
 
 For a new deployment, each configured device must be a dedicated whole disk
 that does not already contain LUKS. The role removes existing signatures,
-creates a new LUKS2 container and local key file, opens the mapper, creates a
-new filesystem, and mounts it. An existing LUKS container is accepted only
-when `patroni_wipe_existing_cluster` explicitly enables cluster recreation;
-the existing container, key, and filesystem are then replaced.
-
-Keys are stored under `/etc/luks/luks-keys` with root-only access. Preserve the
-matching key if data may need to be recovered outside this destructive
-create/recreate workflow. A newly generated key cannot open an older LUKS
-container.
+retrieves the node key from OpenBao, creates a new LUKS2 container, opens the
+mapper, creates a new filesystem, and mounts it. A later run can reopen a LUKS
+container created with the same OpenBao key. This workflow does not migrate a
+container created with another key source.
 
 Replacing the complete `/etc/crypttab` is intentional for these dedicated
-hosts. The systemd volume guards obtain the PostgreSQL and etcd mapper names
-from the entries whose paths match `/var/lib/pgsql` and `/var/lib/etcd`.
+hosts. Its entries use `noauto`; the OpenBao unlock service performs the actual
+unlock and mount after networking and OpenBao Agent authentication are ready.
 
 ### Application database
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `patroni_app_db_name` | `app` | Database created after the cluster is healthy. Also used by the logical dump job and access rules. Use a valid PostgreSQL identifier. |
-| `patroni_app_user_password` | none | Password assigned to `app_user`. Supply it from Ansible Vault. |
+| `patroni_create_app_db_name` | `app` | Database created after the cluster is healthy. Also used by the logical dump job and access rules. Use a valid PostgreSQL identifier. |
 
 The bootstrap SQL creates or updates `app_user`, the local peer-authenticated
-`dumper` role, the application database, and `public.ha_probe`.
+`dumper` role, the application database, and `public.ha_probe`. The `app_user`
+password is read from `pg_cluster/shared/postgresql/app_user` in OpenBao.
 
 ### S3, pgBackRest, and dumps
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `patroni_s3_endpoint` | Environment-specific value in `defaults/main.yml`; override it | Hostname or address of the deployment's S3-compatible endpoint without a scheme. HTTPS is used. |
-| `patroni_s3_port` | `9000` | TLS port of the configured S3-compatible endpoint. |
-| `patroni_s3_region` | `eu-central-1` | Region passed to pgBackRest and boto3. |
-| `patroni_s3_bucket_name` | `patroni-bucket` | Existing bucket for backups and dumps. The role does not create it. |
-| `patroni_s3_prefix` | `/pgbackrest` | pgBackRest repository path inside the bucket. |
-| `patroni_dump_prefix` | `pgdump` | Independent object prefix for encrypted logical dumps. |
-| `patroni_dump_retention` | `3` | Number of newest logical dumps retained under the dump prefix. |
-| `patroni_dump_pass_file_location` | `/etc/pgbackrest/dump.pass` | Path of the file containing the dump encryption passphrase. The file is owned by `postgres`. |
-| `patroni_on_boot_full_backup` | `3min` | Delay before the first full backup attempt after timer activation. |
-| `patroni_interval_full_backup` | `30min` | Interval between full backup attempts. |
-| `patroni_on_boot_incr_backup` | `5min` | Delay before the first incremental backup attempt. |
-| `patroni_interval_incr_backup` | `2min` | Interval between incremental backup attempts. |
-| `patroni_on_boot_dump` | `7min` | Delay before the first logical dump attempt. |
-| `patroni_interval_dump` | `15min` | Interval between logical dump attempts. |
+| `patroni_create_s3_endpoint` | Environment-specific value in `defaults/main.yml`; override it | Hostname or address of the deployment's S3-compatible endpoint without a scheme. HTTPS is used. |
+| `patroni_create_s3_port` | `9000` | TLS port of the configured S3-compatible endpoint. |
+| `patroni_create_s3_region` | `eu-central-1` | Region passed to pgBackRest and boto3. |
+| `patroni_create_s3_bucket_name` | `patroni-bucket` | Existing bucket for backups and dumps. The role does not create it. |
+| `patroni_create_s3_prefix` | `/pgbackrest` | pgBackRest repository path inside the bucket. |
+| `patroni_create_dump_prefix` | `pgdump` | Independent object prefix for encrypted logical dumps. |
+| `patroni_create_dump_retention` | `3` | Number of newest logical dumps retained under the dump prefix. |
+| `patroni_create_on_boot_full_backup` | `3min` | Delay before the first full backup attempt after timer activation. |
+| `patroni_create_interval_full_backup` | `30min` | Interval between full backup attempts. |
+| `patroni_create_on_boot_incr_backup` | `5min` | Delay before the first incremental backup attempt. |
+| `patroni_create_interval_incr_backup` | `2min` | Interval between incremental backup attempts. |
+| `patroni_create_on_boot_dump` | `7min` | Delay before the first logical dump attempt. |
+| `patroni_create_interval_dump` | `15min` | Interval between logical dump attempts. |
 
 pgBackRest retains two full backups according to the generated configuration.
 Timers run on every node, while `leader-gate` permits backup work only on the
-current Patroni leader.
+current Patroni leader. Each pgBackRest invocation reads the repository
+passphrase and S3 credentials from OpenBao through `pgbackrest-wrapper`.
+Logical dumps independently read their encryption passphrase and S3
+credentials from OpenBao when `run-dump` starts. No backup passphrase or S3
+credential is written to the generated pgBackRest configuration or a local
+passphrase file.
 
-### Required secrets
+### OpenBao paths used by backups
 
-The following values must be supplied, preferably from Ansible Vault:
-
-| Variable | Purpose |
-| --- | --- |
-| `patroni_postgres_password` | PostgreSQL `postgres` superuser authentication. |
-| `patroni_replicator_password` | Patroni replication authentication. |
-| `patroni_app_user_password` | Application role authentication. This value has no role default. |
-| `patroni_minio_key` | S3 access key used by pgBackRest and dump uploads. |
-| `patroni_minio_secret` | S3 secret key. |
-| `patroni_repo_cipher_pass` | pgBackRest repository encryption passphrase. Preserve it for restores. |
-| `patroni_dump_cipher_pass` | OpenSSL dump encryption passphrase. Preserve it for decryption. |
-
-All except `patroni_app_user_password` have empty defaults so the preflight
-assertion can reject missing values.
+| Variable | Default path | Purpose |
+| --- | --- | --- |
+| `patroni_create_bao_pgbackrest_path` | `pg_cluster/shared/pgbackrest` | Contains the `cipher_pass` field for physical backups and WAL archives. |
+| `patroni_create_bao_pgdump_path` | `pg_cluster/shared/pgdump` | Contains the independent `cipher_pass` field for logical dumps. |
+| `patroni_create_bao_s3_path` | `pg_cluster/shared/s3` | Contains `access_key` and `secret_key` for pgBackRest and logical dumps. |
 
 ### Internal path variables
 
@@ -298,25 +331,22 @@ Role vars have high precedence and are not the normal configuration interface.
 
 | Variable | Value | Purpose |
 | --- | --- | --- |
-| `patroni_ca_cert_dir` | `/etc/pki/patroni` | Installed CA directory. |
-| `patroni_etcd_data_dir` | `/var/lib/etcd` | etcd data directory and mountpoint. |
-| `patroni_etcd_ssl` | `/etc/etcd/ssl` | etcd certificate directory. |
-| `patroni_patroni_config_yaml` | `/etc/patroni/patroni.yml` | Patroni configuration file. |
-| `patroni_patroni_ssl` | `/etc/patroni/ssl` | Patroni REST certificate directory. |
-| `patroni_patroni_ssl_client` | `/etc/patroni/dcs-client` | Patroni etcd client certificate directory. |
-| `patroni_patroni_bin` | `/usr/bin/patroni` | Patroni executable. |
-| `patroni_patroni_restart_svc_type` | `on-failure` | Patroni systemd restart policy. |
-| `patroni_postgres_main_dir` | `/var/lib/pgsql` | PostgreSQL parent directory and mountpoint. |
-| `patroni_postgres_data_dir` | `/var/lib/pgsql/18/data` | PostgreSQL data directory. |
-| `patroni_pgbackup_path` | `/var/lib/pgsql/archived` | Local archive directory removed during recreation. |
-| `patroni_postgres_socket` | `/var/run/postgresql` | PostgreSQL Unix socket directory. |
-| `patroni_postgres_bin` | `/usr/pgsql-18/bin` | PostgreSQL binary directory. |
-| `patroni_postgres_ssl` | `/var/lib/pgsql/18/ssl` | PostgreSQL server certificate directory. |
-| `patroni_pgbackrest_data_dir` | `/var/lib/pgbackrest` | pgBackRest data directory. |
-| `patroni_pgbackrest_log_dir` | `/var/log/pgbackrest` | pgBackRest log directory. |
-| `patroni_luks_key_dir` | `/etc/luks/luks-keys` | Local LUKS key directory. Its contents are required to reopen existing encrypted volumes. |
-| `patroni_vars_postgres_password` | `{{ patroni_postgres_password }}` | Internal alias rendered into the Patroni configuration. |
-| `patroni_vars_replicator_password` | `{{ patroni_replicator_password }}` | Internal alias rendered into the Patroni configuration. |
+| `patroni_create_vars_ca_cert_dir` | `/etc/pki/patroni` | Installed CA directory. |
+| `patroni_create_vars_etcd_data_dir` | `/var/lib/etcd` | etcd data directory and mountpoint. |
+| `patroni_create_vars_etcd_ssl` | `/etc/etcd/ssl` | etcd certificate directory. |
+| `patroni_create_vars_patroni_config_yaml` | `/etc/patroni/patroni.yml` | Patroni configuration file. |
+| `patroni_create_vars_patroni_ssl` | `/etc/patroni/ssl` | Patroni REST certificate directory. |
+| `patroni_create_vars_patroni_ssl_client` | `/etc/patroni/dcs-client` | Patroni etcd client certificate directory. |
+| `patroni_create_vars_patroni_bin` | `/usr/bin/patroni` | Patroni executable. |
+| `patroni_create_vars_patroni_restart_svc_type` | `on-failure` | Patroni systemd restart policy. |
+| `patroni_create_vars_postgres_main_dir` | `/var/lib/pgsql` | PostgreSQL parent directory and mountpoint. |
+| `patroni_create_vars_postgres_data_dir` | `/var/lib/pgsql/18/data` | PostgreSQL data directory. |
+| `patroni_create_vars_pgbackup_path` | `/var/lib/pgsql/archived` | Local archive directory removed during recreation. |
+| `patroni_create_vars_postgres_socket` | `/var/run/postgresql` | PostgreSQL Unix socket directory. |
+| `patroni_create_vars_postgres_bin` | `/usr/pgsql-18/bin` | PostgreSQL binary directory. |
+| `patroni_create_vars_postgres_ssl` | `/var/lib/pgsql/18/ssl` | PostgreSQL server certificate directory. |
+| `patroni_create_vars_pgbackrest_data_dir` | `/var/lib/pgbackrest` | pgBackRest data directory. |
+| `patroni_create_vars_pgbackrest_log_dir` | `/var/log/pgbackrest` | pgBackRest log directory. |
 
 ## Required role files
 
@@ -401,26 +431,29 @@ Run from the `ansible` directory.
 ansible-playbook playbooks/create_cluster.yml --ask-vault-pass
 ```
 
-With the default `patroni_wipe_existing_cluster: false`, the wipe block is
+With the default `patroni_create_wipe_existing_cluster: false`, the wipe block is
 skipped. The role then:
 
 1. validates the operating system, required secrets, and volume definitions;
 2. installs the required repositories and packages and disables conflicting
    package-provided services;
 3. validates every configured device against its declared type and size;
-4. creates a new LUKS2 container, local key, and configured filesystem on every
-   dedicated data disk, then opens and mounts the mapper;
-5. replaces `/etc/crypttab` with the generated LUKS UUID and key-file entries;
+4. retrieves each node-specific key from OpenBao, creates a new LUKS2 container
+   and configured filesystem, then opens and mounts the mapper;
+5. replaces `/etc/crypttab` with generated LUKS UUID entries using `noauto` and
+   installs the OpenBao-backed unlock service;
 6. configures the firewall, etcd, Patroni, PostgreSQL, and pgBackRest;
 7. starts the cluster, waits for one leader and streaming synchronous replicas,
    and creates the application database on the leader.
 
 > [!CAUTION]
-> `patroni_wipe_existing_cluster: false` disables only the explicit cluster-data
+> `patroni_create_wipe_existing_cluster: false` disables only the explicit cluster-data
 > wipe. It does not make storage preparation non-destructive. A configured
 > device without LUKS is passed through `wipefs`, `luksFormat`, and filesystem
-> creation. An existing LUKS device is rejected unless explicit recreation is
-> enabled. New deployments require dedicated disks whose contents may be
+> creation. An existing LUKS device is opened with the matching key from
+> OpenBao and its existing filesystem is mounted without recreation. Setting
+> `patroni_create_wipe_existing_cluster: true` recreates the LUKS container and
+> filesystem. New deployments require dedicated disks whose contents may be
 > destroyed.
 
 ### Recreate an existing cluster
@@ -428,7 +461,7 @@ skipped. The role then:
 > [!CAUTION]
 > 🔴 **DESTRUCTIVE AND IRREVERSIBLE OPERATION**
 >
-> Setting `patroni_wipe_existing_cluster=true` is an explicit request to
+> Setting `patroni_create_wipe_existing_cluster=true` is an explicit request to
 > destroy the local PostgreSQL cluster and the complete local etcd state on
 > every selected host. Use this option only when the application is not
 > required to remain available and there is an agreed need to destroy and
@@ -439,7 +472,7 @@ skipped. The role then:
 ```bash
 ansible-playbook playbooks/create_cluster.yml \
   --ask-vault-pass \
-  -e patroni_wipe_existing_cluster=true
+  -e patroni_create_wipe_existing_cluster=true
 ```
 
 Do not combine cluster recreation with an inventory limit that selects only a
@@ -491,18 +524,18 @@ filesystem layer on every configured data disk. It does not:
 > [!CAUTION]
 > 🔴 **REVIEW THE BACKUP REPOSITORY BEFORE RECREATION.** Recreating PostgreSQL
 > produces a new database system identifier. An existing pgBackRest stanza
-> with the same `patroni_cluster_name` and repository path may therefore be
+> with the same `patroni_create_cluster_name` and repository path may therefore be
 > incompatible with the new cluster. Decide whether to preserve the old
 > repository under a separate prefix, archive it, or initialize a repository
-> path for the new cluster generation. Preserve `patroni_repo_cipher_pass` and
-> `patroni_dump_cipher_pass` for every retained backup that may need to be
-> restored.
+> path for the new cluster generation. Preserve the historical values from the
+> OpenBao `pgbackrest/cipher_pass` and `pgdump/cipher_pass` fields for every
+> retained backup that may need to be restored.
 
 ## Firewall behavior
 
 The role creates the configured zone, applies a `DROP` target, permits SSH from
-`patroni_management_cidr`, permits cluster ports between all nodes, permits
-PostgreSQL from `patroni_app_cidrs`, and makes the zone the host default. This
+`patroni_create_management_cidr`, permits cluster ports between all nodes, permits
+PostgreSQL from `patroni_create_app_cidrs`, and makes the zone the host default. This
 default-deny behavior is intentional.
 
 ## Backup behavior
@@ -513,7 +546,205 @@ unknown leadership state makes the job fail closed.
 
 Logical dumps use PostgreSQL custom format, AES-256-CBC with PBKDF2, and the
 configured S3 bucket. Old dumps are pruned according to
-`patroni_dump_retention`.
+`patroni_create_dump_retention`.
+
+## Secret rotation procedures
+
+This role creates or recreates a cluster from known inputs. It does not rotate
+secrets on a running production cluster. Updating a KV value in OpenBao does
+not update PostgreSQL roles, LUKS keyslots, existing backup encryption, or
+application configuration. Perform every rotation as a separate operational
+procedure.
+
+For every rotation:
+
+1. Confirm that the Patroni cluster is healthy and identify the current leader.
+2. Retain the previous secret in an approved recovery location until the new
+   value has been fully tested.
+3. Prevent automatic failover and unrelated maintenance for the duration of
+   the change when the procedure requires it.
+4. Change one component or one cluster member at a time.
+5. Define and test the rollback before removing the previous value.
+6. Record which backups, dumps, or encrypted volumes require each historical
+   key version.
+
+Do not put a password directly in a shell command, command-line argument,
+Ansible variable, or SQL history. For PostgreSQL role passwords, connect
+locally as the operating-system `postgres` user and use the interactive psql
+`\password` command.
+
+### PostgreSQL `postgres` password
+
+OpenBao path: `pg_cluster/shared/postgresql/postgres`, field `password`.
+
+1. Generate and retain the new and previous passwords securely.
+2. Connect to the current leader through the local Unix socket:
+
+   ```bash
+   sudo -u postgres psql --no-psqlrc --dbname=postgres
+   ```
+
+3. In psql, change the role password without placing it in command history:
+
+   ```text
+   \password postgres
+   ```
+
+4. Immediately replace the `password` field at the OpenBao path. Treat the
+   database change and OpenBao update as one maintenance action; do not restart
+   a member or perform a failover between them.
+5. Restart Patroni on one replica at a time. After each restart, verify that the
+   member returns to `running` and `streaming`.
+6. Perform a controlled switchover to an updated member, restart the former
+   leader, and verify the complete cluster again.
+7. Verify an administrative connection using the new password before closing
+   the change.
+
+To roll back, restore the previous role password on the leader, restore the
+previous OpenBao value, and repeat the rolling Patroni restart.
+
+### PostgreSQL `replicator` password
+
+OpenBao path: `pg_cluster/shared/postgresql/replicator`, field `password`.
+
+1. Confirm that every replica is streaming and that no switchover or failover
+   is in progress.
+2. Connect locally to the current leader and run:
+
+   ```text
+   \password replicator
+   ```
+
+3. Immediately replace the OpenBao `password` field. Do not trigger a failover
+   between changing PostgreSQL and updating OpenBao.
+4. Restart Patroni on one replica at a time so that its wrapper loads the new
+   password. Confirm that replication reconnects and returns to `streaming`
+   before continuing to the next replica.
+5. Perform a controlled switchover to an updated replica, restart the former
+   leader, and confirm that it reconnects as a replica.
+6. Verify the member count, replication state, synchronous standby, and
+   replication lag.
+
+Changing the role on the leader is replicated to the other database members.
+Do not execute an independent `ALTER ROLE` on each replica.
+
+### PostgreSQL `app_user` password
+
+OpenBao path: `pg_cluster/shared/postgresql/app_user`, field `password`.
+
+The application and database must change credentials as one coordinated
+operation because the role has one active password.
+
+1. Drain or stop application traffic, unless the application supports a
+   documented dual-credential rotation mechanism.
+2. On the database leader, run `\password app_user` from an interactive local
+   psql session.
+3. Update the OpenBao field and the application configuration that consumes
+   the credential.
+4. Restart or reload the application and verify a TLS connection as
+   `app_user`, followed by an application read and write check.
+5. Restore application traffic only after the check succeeds.
+
+Do not rerun the cluster creation role solely to rotate `app_user` on an
+existing production cluster.
+
+### S3 access credentials
+
+OpenBao path: `pg_cluster/shared/s3`, fields `access_key` and `secret_key`.
+
+1. Create a second S3 or MinIO credential while the previous credential remains
+   valid.
+2. Grant the new credential the same minimum permissions for the configured
+   backup bucket and prefixes.
+3. Replace both OpenBao fields as one change.
+4. On the current leader, use `pgbackrest-wrapper` to check the repository and
+   run a controlled backup. Run one logical dump and verify that its object is
+   present in the expected prefix.
+5. Verify that WAL archiving continues without errors.
+6. Revoke the previous S3 credential only after all three checks succeed.
+
+### pgBackRest repository cipher passphrase
+
+OpenBao path: `pg_cluster/shared/pgbackrest`, field `cipher_pass`.
+
+Do not overwrite this value for an existing repository. Existing repository
+metadata, backups, and archived WAL depend on the original passphrase. The
+safest rotation is a new repository generation:
+
+1. Preserve the previous passphrase and repository unchanged.
+2. Stop the full and incremental backup timers and confirm that no pgBackRest
+   process is running.
+3. Allocate a new repository prefix or repository number.
+4. Store the new passphrase in OpenBao and update the pgBackRest configuration
+   for the new repository as one controlled change.
+5. Create the new stanza and take a new full backup immediately.
+6. Perform a restore test from the new full backup.
+7. Resume the backup timers and verify `archive-push` and `archive-get` against
+   the intended repository.
+8. Retain the previous passphrase for as long as any old backup or archived WAL
+   may be restored.
+
+### Logical dump cipher passphrase
+
+OpenBao path: `pg_cluster/shared/pgdump`, field `cipher_pass`.
+
+1. Preserve the previous passphrase together with the range of dump object
+   names that require it.
+2. Stop the logical dump timer and confirm that no dump is running.
+3. Replace the OpenBao field.
+4. Start one logical dump manually on the current leader.
+5. Download the new object, decrypt it with the new passphrase, and verify it
+   with `pg_restore --list` or a controlled restore test.
+6. Resume the logical dump timer.
+
+Existing dump objects are not re-encrypted. Keep every historical passphrase
+until all corresponding objects have expired or been deliberately removed.
+
+### LUKS2 keys
+
+LUKS paths are node-specific:
+`pg_cluster/nodes/<node>/luks/<volume>`, field `key_b64`.
+
+Rotate one node and one volume at a time:
+
+1. Confirm that the remaining Patroni members can maintain quorum and service
+   while the selected node is restarted.
+2. Generate a new random key and store it temporarily as a separate OpenBao
+   field or path. Do not replace `key_b64` yet.
+3. Authenticate with the current key and add the new key to a free LUKS2
+   keyslot using `cryptsetup luksAddKey`.
+4. Use `cryptsetup open --test-passphrase` to confirm that the new key unlocks
+   the volume.
+5. Replace the active OpenBao `key_b64` value with the tested new key.
+6. Reboot the node and verify automatic unlock, mounts, etcd, Patroni, and
+   cluster membership.
+7. Only after the reboot test succeeds, remove the previous keyslot with
+   `cryptsetup luksRemoveKey`.
+8. Repeat for the other volume and then for the remaining nodes.
+
+Never overwrite the only recoverable LUKS key before the new key has been
+added and tested. The create/recreate workflow does not perform this rotation;
+when wipe is enabled it destroys the old container and creates a new one.
+
+### pg_tde principal key
+
+Do not rotate the pg_tde principal key while pgBackRest, a logical dump, or a
+restore operation is running.
+
+1. Stop the backup and dump timers and confirm that no backup process remains.
+2. Confirm that the cluster is healthy and that the OpenBao pg_tde key store is
+   available and backed up.
+3. Rotate the principal key using the pg_tde procedure approved for the
+   installed extension version.
+4. Verify reads and writes on encrypted tables and verify the state of every
+   Patroni member.
+5. Take a new full pgBackRest backup immediately and perform a restore test.
+6. Resume incremental backups and logical dumps only after the full backup and
+   restore test succeed.
+
+Preserve every OpenBao key version required to restore retained backups. Exact
+pg_tde commands belong to the pg_tde integration procedure because they depend
+on the extension version and provider configuration.
 
 ## Validation after deployment
 
@@ -526,7 +757,7 @@ Useful checks:
 sudo -u postgres patronictl -c /etc/patroni/patroni.yml list
 sudo systemctl status etcd percona-patroni
 sudo systemctl list-timers 'patroni-*'
-sudo -u postgres pgbackrest --stanza=YOUR_CLUSTER_NAME info
+sudo -u postgres /usr/local/libexec/patroni/pgbackrest-wrapper --stanza=YOUR_CLUSTER_NAME info
 findmnt /var/lib/pgsql
 findmnt /var/lib/etcd
 ```

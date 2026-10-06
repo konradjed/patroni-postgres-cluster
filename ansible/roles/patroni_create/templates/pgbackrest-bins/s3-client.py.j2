@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import configparser
+import os
 import sys
 
 import boto3
@@ -17,8 +18,8 @@ def client():
     s3 = boto3.client(
         "s3",
         endpoint_url=f"https://{g['repo1-s3-endpoint']}:{g['repo1-storage-port']}",
-        aws_access_key_id=g["repo1-s3-key"],
-        aws_secret_access_key=g["repo1-s3-key-secret"],
+        aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
         region_name=g["repo1-s3-region"],
         verify=g["repo1-storage-ca-file"],
         config=Config(s3={"addressing_style": "path"}),

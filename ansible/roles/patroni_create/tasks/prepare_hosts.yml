@@ -12,7 +12,7 @@
     regexp: "[[:space:]]{{ item }}$"
     insertafter: EOF
     state: present
-  loop: "{{ groups[patroni_inventory_group] }}"
+  loop: "{{ groups[patroni_create_inventory_group] }}"
 
 - name: Install repository prerequisites
   ansible.builtin.dnf:
@@ -24,14 +24,14 @@
       - python3-firewall
       - cryptsetup
     state: present
-  register: repo_prereqs
+  register: patroni_playbook_repo_prereqs
   retries: 5
   delay: 15
-  until: repo_prereqs is succeeded
+  until: patroni_playbook_repo_prereqs is succeeded
 
 - name: Read the enabled DNF repositories
   ansible.builtin.command: dnf repolist --enabled
-  register: list_enabled_repos
+  register: patroni_playbook_enabled_repos
   changed_when: false
 
 - name: Enable the CodeReady Builder and EPEL repositories
@@ -39,25 +39,25 @@
   loop:
     - crb
     - epel
-  when: item not in (list_enabled_repos.stdout_lines | map('regex_replace', '\\s.*$', '') | list)
+  when: item not in (patroni_playbook_enabled_repos.stdout_lines | map('regex_replace', '\\s.*$', '') | list)
 
 - name: Import Percona GPG key
   ansible.builtin.rpm_key:
     key: https://repo.percona.com/yum/PERCONA-PACKAGING-KEY
     state: present
-  register: percona_key
+  register: patroni_playbook_percona_key
   retries: 5
   delay: 15
-  until: percona_key is succeeded
+  until: patroni_playbook_percona_key is succeeded
 
 - name: Install percona-release
   ansible.builtin.dnf:
     name: 'https://repo.percona.com/yum/percona-release-latest.noarch.rpm'
     state: present
-  register: percona_release
+  register: patroni_playbook_percona_release
   retries: 5
   delay: 15
-  until: percona_release is succeeded
+  until: patroni_playbook_percona_release is succeeded
 
 - name: Execute percona release script
   ansible.builtin.command: percona-release setup -y ppg18
@@ -77,13 +77,14 @@
       - binutils
       - percona-patroni
       - percona-pgbackrest
+      - percona-pg_tde18
+      - openbao
     state: present
-  register: cluster_packages
+  register: patroni_playbook_cluster_packages
   retries: 5
   delay: 15
-  until: cluster_packages is succeeded
+  until: patroni_playbook_cluster_packages is succeeded
 
-# Configure Firewalld
 - name: Ensure systemd services are in the desired state
   ansible.builtin.systemd_service:
     name: "{{ item.service }}"
@@ -106,9 +107,17 @@
     masked: false
   when: "'percona-patroni.service' in ansible_facts.services"
 
+- name: Stop Openbao Agent if runs
+  ansible.builtin.systemd_service:
+    name: openbao-agent
+    state: stopped
+    enabled: false
+    masked: false
+  when: "'openbao-agent.service' in ansible_facts.services"
+
 - name: Create CA directory
   ansible.builtin.file:
-    path: "{{ patroni_ca_cert_dir }}"
+    path: "{{ patroni_create_vars_ca_cert_dir }}"
     state: directory
     owner: root
     group: root
@@ -117,7 +126,7 @@
 - name: Import CA certificate
   ansible.builtin.copy:
     src: certs/ca/ca.crt
-    dest: "{{ patroni_ca_cert_dir }}/ca.crt"
+    dest: "{{ patroni_create_vars_ca_cert_dir }}/ca.crt"
     owner: root
     group: root
     mode: '0644'

@@ -9,13 +9,13 @@
     mode: '0755'
   loop:
     - /etc/patroni/
-    - "{{ patroni_patroni_ssl_client }}/"
-    - "{{ patroni_patroni_ssl }}/"
+    - "{{ patroni_create_vars_patroni_ssl_client }}/"
+    - "{{ patroni_create_vars_patroni_ssl }}/"
 
 - name: Copy SSL Certificates for Patroni server
   ansible.builtin.copy:
     src: "{{ item }}"
-    dest: "{{ patroni_patroni_ssl }}"
+    dest: "{{ patroni_create_vars_patroni_ssl }}"
     mode: '0600'
     owner: postgres
     group: postgres
@@ -26,7 +26,7 @@
 - name: Copy SSL Certificates for Patroni dcs client
   ansible.builtin.copy:
     src: "{{ item }}"
-    dest: "{{ patroni_patroni_ssl_client }}"
+    dest: "{{ patroni_create_vars_patroni_ssl_client }}"
     mode: '0600'
     owner: postgres
     group: postgres
@@ -36,7 +36,7 @@
 
 - name: Copy template patroni config
   ansible.builtin.template:
-    src: patroni.yml.j2
+    src: config-files/patroni.yml.j2
     dest: /etc/patroni/patroni.yml
     mode: '0600'
     owner: postgres
@@ -52,20 +52,28 @@
     mode: '0700'
     state: directory
   loop:
-    - "{{ patroni_postgres_data_dir }}/"
-    - "{{ patroni_pgbackup_path }}/"
-    - "{{ patroni_postgres_ssl }}/"
+    - "{{ patroni_create_vars_postgres_data_dir }}/"
+    - "{{ patroni_create_vars_pgbackup_path }}/"
+    - "{{ patroni_create_vars_postgres_ssl }}/"
 
 - name: Copy SSL Certificates for Postgres
   ansible.builtin.copy:
     src: "{{ item.src }}"
-    dest: "{{ patroni_postgres_ssl }}/{{ item.dest_name }}"
+    dest: "{{ patroni_create_vars_postgres_ssl }}/{{ item.dest_name }}"
     mode: '0600'
     owner: postgres
     group: postgres
   loop:
     - { src: "certs/postgres/pgsrv-{{ inventory_hostname }}.crt", dest_name: pgsrv.crt }
     - { src: "certs/postgres/pgsrv-{{ inventory_hostname }}.key", dest_name: pgsrv.key }
+
+- name: Install Patroni OpenBao wrapper
+  ansible.builtin.template:
+    src: openbao-wrappers/patroni-wrapper.j2
+    dest: /usr/local/libexec/patroni/patroni-wrapper
+    owner: root
+    group: postgres
+    mode: '0750'
 
 - name: Load softdog module now
   community.general.modprobe:
@@ -98,7 +106,7 @@
 
 - name: Copy template patroni service
   ansible.builtin.template:
-    src: percona-patroni.service.j2
+    src: systemd/percona-patroni.service.j2
     dest: /etc/systemd/system/percona-patroni.service
     owner: root
     group: root

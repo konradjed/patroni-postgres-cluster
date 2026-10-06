@@ -1,7 +1,8 @@
 [Unit]
 Description=Postgres dump
-After=network-online.target percona-patroni.service
-Wants=network-online.target
+Requires=percona-patroni.service
+Wants=network-online.target openbao-agent.service
+After=network-online.target openbao-agent.service percona-patroni.service
 
 [Service]
 Type=oneshot

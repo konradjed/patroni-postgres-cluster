@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+export PATRONI_SUPERUSER_PASSWORD
+export PATRONI_REPLICATION_PASSWORD
+
+PATRONI_SUPERUSER_PASSWORD="$(
+    /usr/local/libexec/patroni/bao-read \
+        {{ patroni_create_bao_postgres_password_path | quote }} \
+        password
+)"
+
+PATRONI_REPLICATION_PASSWORD="$(
+    /usr/local/libexec/patroni/bao-read \
+        {{ patroni_create_bao_replicator_password_path | quote }} \
+        password
+)"
+
+if [[ -z "$PATRONI_SUPERUSER_PASSWORD" ]]; then
+    echo "PostgreSQL superuser password is empty" >&2
+    exit 1
+fi
+
+if [[ -z "$PATRONI_REPLICATION_PASSWORD" ]]; then
+    echo "PostgreSQL replication password is empty" >&2
+    exit 1
+fi
+
+exec {{ patroni_create_vars_patroni_bin | quote }} {{ patroni_create_vars_patroni_config_yaml | quote }}

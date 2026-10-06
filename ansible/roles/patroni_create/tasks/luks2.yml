@@ -4,8 +4,8 @@
   ansible.builtin.stat:
     path: "{{ item.device }}"
     follow: true
-  register: patroni_volume_device_stats
-  loop: "{{ patroni_data_volumes }}"
+  register: patroni_playbook_volume_device_stats
+  loop: "{{ patroni_create_data_volumes }}"
   loop_control:
     label: "{{ item.name }} -> {{ item.device }}"
 
@@ -17,7 +17,7 @@
     fail_msg: >-
       {{ item.item.device | default('<undefined>') }} configured for
       {{ item.item.name }} does not exist or is not a block device.
-  loop: "{{ patroni_volume_device_stats.results }}"
+  loop: "{{ patroni_playbook_volume_device_stats.results }}"
   loop_control:
     label: "{{ item.item.name }}"
 
@@ -31,9 +31,9 @@
       - --output
       - TYPE,SIZE
       - "{{ item.device }}"
-  register: patroni_volume_device_properties
+  register: patroni_playbook_volume_device_properties
   changed_when: false
-  loop: "{{ patroni_data_volumes }}"
+  loop: "{{ patroni_create_data_volumes }}"
   loop_control:
     label: "{{ item.name }} -> {{ item.device }}"
 
@@ -47,36 +47,36 @@
     fail_msg: >-
       {{ item.item.device }} is not a whole disk of approximately
       {{ item.item.gib }} GiB (got: {{ item.stdout }}).
-  loop: "{{ patroni_volume_device_properties.results }}"
+  loop: "{{ patroni_playbook_volume_device_properties.results }}"
   loop_control:
     label: "{{ item.item.name }}"
 
 - name: Build the volume map
   ansible.builtin.set_fact:
-    patroni_volumes: >-
-      {{ patroni_volumes | default([]) + [item | combine({
+    patroni_playbook_volumes: >-
+      {{ patroni_playbook_volumes | default([]) + [item | combine({
            'mapper': 'patroni-' ~ item.name,
-           'keyfile': patroni_luks_key_dir ~ '/' ~ item.name ~ '.key'
+           'secret_path': patroni_create_bao_cluster_path ~ '/nodes/' ~ inventory_hostname ~ '/luks/' ~ item.name
          })] }}
-  loop: "{{ patroni_data_volumes }}"
+  loop: "{{ patroni_create_data_volumes }}"
   loop_control:
     label: "{{ item.name }} -> {{ item.device }}"
 
-- name: Create the configuration directory
-  ansible.builtin.file:
-    path: "{{ patroni_luks_key_dir | dirname }}"
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
+- name: Verify access to every configured LUKS key in OpenBao
+  ansible.builtin.shell: |
+    set -euo pipefail
 
-- name: Create the LUKS key directory
-  ansible.builtin.file:
-    path: "{{ patroni_luks_key_dir }}"
-    state: directory
-    owner: root
-    group: root
-    mode: '0700'
+    decoded_size="$({{ '/usr/local/libexec/patroni/bao-read' | quote }} \
+      {{ item.secret_path | quote }} \
+      key_b64 | base64 --decode | wc -c)"
+    test "$decoded_size" -gt 0
+  args:
+    executable: /bin/bash
+  loop: "{{ patroni_playbook_volumes }}"
+  loop_control:
+    label: "{{ item.secret_path }}"
+  changed_when: false
+  no_log: true
 
 - name: Check whether configured devices already contain LUKS
   ansible.builtin.command:
@@ -84,99 +84,111 @@
       - cryptsetup
       - isLuks
       - "{{ item.device }}"
-  register: patroni_existing_luks
+  register: patroni_playbook_existing_luks
   changed_when: false
-  failed_when: patroni_existing_luks.rc not in [0, 1]
-  loop: "{{ patroni_volumes }}"
+  failed_when: patroni_playbook_existing_luks.rc not in [0, 1]
+  loop: "{{ patroni_playbook_volumes }}"
   loop_control:
     label: "{{ item.name }} -> {{ item.device }}"
 
-- name: Require explicit recreation for existing encrypted volumes
-  ansible.builtin.assert:
-    that:
-      - item.rc != 0 or (patroni_wipe_existing_cluster | bool)
-    fail_msg: >-
-      {{ item.item.device }} already contains a LUKS volume.
-      Refusing to reformat it while patroni_wipe_existing_cluster is false.
-      Use the explicit recreation mode if this cluster must be destroyed.
-  loop: "{{ patroni_existing_luks.results }}"
-  loop_control:
-    label: "{{ item.item.name }}"
-
 - name: Unmount data volumes before recreating encryption
   ansible.posix.mount:
-    path: "{{ item.path }}"
+    path: "{{ item.item.path }}"
     state: unmounted
-  loop: "{{ patroni_volumes }}"
+  loop: "{{ patroni_playbook_existing_luks.results }}"
   loop_control:
-    label: "{{ item.path }}"
+    label: "{{ item.item.path }}"
+  when: item.rc == 1 or (patroni_create_wipe_existing_cluster | bool)
 
-- name: Create/Recreate encrypted data volumes
+- name: Create or recreate encrypted data volumes using OpenBao keys
   ansible.builtin.shell: |
     set -euo pipefail
 
-    device="{{ item.device }}"
-    mapper="{{ item.mapper }}"
-    keyfile="{{ item.keyfile }}"
-    new_keyfile="${keyfile}.new"
+    device={{ item.item.device | quote }}
+    mapper={{ item.item.mapper | quote }}
 
-    if [ -e "/dev/mapper/$mapper" ]; then
+    if cryptsetup status "$mapper" >/dev/null 2>&1; then
       cryptsetup close "$mapper"
-    fi
-
-    if [ ! -s "$new_keyfile" ]; then
-      umask 077
-      head -c 512 /dev/urandom > "$new_keyfile"
-      chmod 0400 "$new_keyfile"
     fi
 
     wipefs --all "$device"
 
+    /usr/local/libexec/patroni/bao-read \
+      {{ item.item.secret_path | quote }} \
+      key_b64 | \
+    base64 --decode | \
     cryptsetup luksFormat \
       --type luks2 \
       --batch-mode \
-      --key-file "$new_keyfile" \
+      --key-file=- \
       "$device"
-
-    mv --force "$new_keyfile" "$keyfile"
-    chmod 0400 "$keyfile"
-
-    cryptsetup luksOpen \
-      --key-file "$keyfile" \
-      "$device" \
-      "$mapper"
-
-    mkfs.{{ patroni_volume_fstype }} \
-      -q \
-      -f \
-      "/dev/mapper/$mapper"
-
-    echo changed
   args:
     executable: /bin/bash
-  register: patroni_volume_recreation
-  changed_when: "'changed' in patroni_volume_recreation.stdout"
-  loop: "{{ patroni_volumes }}"
+  register: patroni_playbook_volume_recreation
+  changed_when: true
+  loop: "{{ patroni_playbook_existing_luks.results }}"
+  loop_control:
+    label: "{{ item.item.name }} on {{ item.item.device }}"
+  when: item.rc == 1 or (patroni_create_wipe_existing_cluster | bool)
+  no_log: true
+
+- name: Open encrypted data volumes using OpenBao keys
+  ansible.builtin.shell: |
+    set -euo pipefail
+
+    if cryptsetup status {{ item.mapper | quote }} >/dev/null 2>&1; then
+      exit 0
+    fi
+
+    /usr/local/libexec/patroni/bao-read \
+      {{ item.secret_path | quote }} \
+      key_b64 | \
+    base64 --decode | \
+    cryptsetup luksOpen \
+      --key-file=- \
+      {{ item.device | quote }} \
+      {{ item.mapper | quote }}
+
+    echo opened
+  args:
+    executable: /bin/bash
+  register: patroni_playbook_volume_open
+  changed_when: "'opened' in patroni_playbook_volume_open.stdout"
+  loop: "{{ patroni_playbook_volumes }}"
   loop_control:
     label: "{{ item.name }} on {{ item.device }}"
+  no_log: true
+
+- name: Create filesystems on newly encrypted data volumes
+  ansible.builtin.command:
+    argv:
+      - "mkfs.{{ patroni_create_volume_fstype }}"
+      - -q
+      - -f
+      - "/dev/mapper/{{ item.item.mapper }}"
+  loop: "{{ patroni_playbook_existing_luks.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when: item.rc == 1 or (patroni_create_wipe_existing_cluster | bool)
+  changed_when: true
 
 - name: Read each volume's LUKS UUID
   ansible.builtin.command: "cryptsetup luksUUID {{ item.device }}"
-  register: patroni_luks_uuids
+  register: patroni_playbook_luks_uuids
   changed_when: false
-  loop: "{{ patroni_volumes }}"
+  loop: "{{ patroni_playbook_volumes }}"
   loop_control:
     label: "{{ item.name }}"
 
 - name: Configure unattended unlock at boot
   ansible.builtin.template:
-    src: crypttab.j2
+    src: config-files/crypttab.j2
     dest: /etc/crypttab
     owner: root
     group: root
     mode: '0600'
   vars:
-    patroni_crypttab_entries: "{{ patroni_volumes | zip(patroni_luks_uuids.results | map(attribute='stdout') | list) | list }}"
+    patroni_playbook_crypttab_entries: "{{ patroni_playbook_volumes | zip(patroni_playbook_luks_uuids.results | map(attribute='stdout') | list) | list }}"
 
 - name: Install the mount guard used by the service units
   ansible.builtin.copy:
@@ -190,12 +202,38 @@
   ansible.posix.mount:
     path: "{{ item.path }}"
     src: "/dev/mapper/{{ item.mapper }}"
-    fstype: "{{ patroni_volume_fstype }}"
-    opts: defaults
+    fstype: "{{ patroni_create_volume_fstype }}"
+    opts: defaults,noauto,x-systemd.requires=patroni-unlock-volumes.service,x-systemd.after=patroni-unlock-volumes.service
     state: mounted
-  loop: "{{ patroni_volumes }}"
+  loop: "{{ patroni_playbook_volumes }}"
   loop_control:
     label: "{{ item.path }} <- /dev/mapper/{{ item.mapper }}"
+
+- name: Install the OpenBao volume unlock helper
+  ansible.builtin.template:
+    src: openbao-wrappers/unlock-volumes.j2
+    dest: /usr/local/libexec/patroni/unlock-volumes
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Install the OpenBao volume unlock service
+  ansible.builtin.template:
+    src: systemd/patroni-unlock-volumes.service.j2
+    dest: /etc/systemd/system/patroni-unlock-volumes.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Apply the OpenBao volume unlock service definition
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the OpenBao volume unlock service
+  ansible.builtin.systemd_service:
+    name: patroni-unlock-volumes.service
+    enabled: true
+    state: started
 
 - name: Set ownership of each mounted volume
   ansible.builtin.file:
@@ -204,6 +242,6 @@
     owner: "{{ item.owner }}"
     group: "{{ item.owner }}"
     mode: '0700'
-  loop: "{{ patroni_volumes }}"
+  loop: "{{ patroni_playbook_volumes }}"
   loop_control:
     label: "{{ item.path }}"

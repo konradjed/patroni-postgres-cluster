@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ "$#" -ne 2 ]]; then
+    echo "Usage: $0 <secret-path> <field>" >&2
+    exit 64
+fi
+
+readonly secret_path="$1"
+readonly secret_field="$2"
+readonly token_path={{ patroni_create_bao_token_path | quote }}
+
+if [[ ! -f "$token_path" ]]; then
+    echo "OpenBao token file does not exist: $token_path" >&2
+    exit 1
+fi
+
+if [[ ! -r "$token_path" ]]; then
+    echo "OpenBao token file is not readable: $token_path" >&2
+    exit 1
+fi
+
+if [[ ! -s "$token_path" ]]; then
+    echo "OpenBao token file is empty: $token_path" >&2
+    exit 1
+fi
+
+export BAO_ADDR={{ patroni_create_bao_address | quote }}
+export BAO_NAMESPACE={{ patroni_create_bao_secret_namespace | quote }}
+export BAO_CACERT={{ (patroni_create_vars_ca_cert_dir ~ '/ca.crt') | quote }}
+export BAO_TOKEN
+
+BAO_TOKEN="$(<"$token_path")"
+
+if [[ -z "$BAO_TOKEN" ]]; then
+    echo "OpenBao token is empty" >&2
+    exit 1
+fi
+
+exec /usr/bin/bao kv get -mount={{ patroni_create_bao_secrets_mount | quote }} -field="$secret_field" "$secret_path"

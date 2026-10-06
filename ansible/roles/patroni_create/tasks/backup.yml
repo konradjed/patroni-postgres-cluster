@@ -1,6 +1,6 @@
 ---
 
-- name: Ensure req dirs exists and have right permissions
+- name: Ensure required directories exist and have right permissions
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
@@ -9,8 +9,8 @@
     mode: '0750'
   loop:
     - /etc/pgbackrest
-    - "{{ patroni_pgbackrest_data_dir }}"
-    - "{{ patroni_pgbackrest_log_dir }}"
+    - "{{ patroni_create_vars_pgbackrest_data_dir }}"
+    - "{{ patroni_create_vars_pgbackrest_log_dir }}"
 
 - name: Backup pgBackRest configuration
   ansible.builtin.copy:
@@ -24,7 +24,7 @@
 
 - name: Copy pgbackrest config file
   ansible.builtin.template:
-    src: pgbackrest.conf.j2
+    src: config-files/pgbackrest.conf.j2
     dest: /etc/pgbackrest/pgbackrest.conf
     owner: postgres
     group: postgres
@@ -32,13 +32,21 @@
   no_log: true
   diff: false
 
-- name: Creat patroni backup bin folder
+- name: Create patroni backup bin folder
   ansible.builtin.file:
     path: "/usr/local/lib/patroni"
     state: directory
     owner: root
     group: root
     mode: '0755'
+
+- name: Copy pgbackrest wrapper
+  ansible.builtin.template:
+    src: openbao-wrappers/pgbackrest-wrapper.j2
+    dest: /usr/local/libexec/patroni/pgbackrest-wrapper
+    owner: root
+    group: postgres
+    mode: '0750'
 
 - name: Copy backup bin files
   ansible.builtin.template:
@@ -79,36 +87,26 @@
 
 - name: Check leadership before creating the stanza
   ansible.builtin.command: /usr/local/lib/patroni/leader-gate
-  register: stanza_gate
+  register: patroni_playbook_stanza_gate
   changed_when: false
   failed_when: false
-  until: stanza_gate.rc != 2
+  until: patroni_playbook_stanza_gate.rc != 2
   retries: 60
   delay: 2
 
 - name: Create stanza
   ansible.builtin.command: >-
-    pgbackrest --stanza={{ patroni_cluster_name }} --no-online stanza-create
+    /usr/local/libexec/patroni/pgbackrest-wrapper --stanza={{ patroni_create_cluster_name }} --no-online stanza-create
   become_user: postgres
   changed_when: false
-  when: stanza_gate.rc == 0
+  when: patroni_playbook_stanza_gate.rc == 0
 
 - name: Check the repository
   ansible.builtin.command: >-
-    pgbackrest --stanza={{ patroni_cluster_name }} check
+    /usr/local/libexec/patroni/pgbackrest-wrapper --stanza={{ patroni_create_cluster_name }} check
   become_user: postgres
   changed_when: false
-  when: stanza_gate.rc == 0
-
-- name: Dump passphrase
-  ansible.builtin.copy:
-    content: "{{ patroni_dump_cipher_pass }}\n"
-    dest: "{{ patroni_dump_pass_file_location }}"
-    owner: postgres
-    group: postgres
-    mode: '0600'
-  no_log: true
-  diff: false
+  when: patroni_playbook_stanza_gate.rc == 0
 
 - name: Enable and start the backup timers
   ansible.builtin.systemd_service:

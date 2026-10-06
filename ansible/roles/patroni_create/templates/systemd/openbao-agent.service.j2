@@ -1,0 +1,22 @@
+[Unit]
+Description=OpenBao Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openbao
+Group=postgres
+Environment="BAO_NAMESPACE={{ patroni_create_bao_secret_namespace }}"
+Environment="BAO_ADDR={{ patroni_create_bao_address }}"
+Environment="BAO_CACERT={{ patroni_create_vars_ca_cert_dir }}/ca.crt"
+RuntimeDirectory=openbao-agent
+RuntimeDirectoryMode=0750
+ExecStart=/usr/bin/bao agent -config={{ patroni_create_vars_openbao_config_dir }}/agent.hcl
+UMask=0027
+TimeoutStopSec=30
+RestartSec=5s
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

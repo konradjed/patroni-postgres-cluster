@@ -1,0 +1,25 @@
+name: '{{ inventory_hostname }}'
+data-dir: {{ patroni_create_vars_etcd_data_dir }}
+
+initial-cluster-token: {{ patroni_create_pg_token }}
+initial-cluster-state: new
+initial-cluster: {% for host in groups[patroni_create_inventory_group] %}{{ host }}=https://{{ hostvars[host].ansible_host }}:2380{% if not loop.last %},{% endif %}{% endfor +%}
+
+initial-advertise-peer-urls: https://{{ ansible_host }}:2380
+listen-peer-urls: https://0.0.0.0:2380
+advertise-client-urls: https://{{ ansible_host }}:2379
+listen-client-urls: https://0.0.0.0:2379
+
+peer-transport-security:
+  trusted-ca-file: {{ patroni_create_vars_ca_cert_dir }}/ca.crt
+  client-cert-auth: true
+  cert-file: {{ patroni_create_vars_etcd_ssl }}/etcd-{{ inventory_hostname }}.crt
+  key-file: {{ patroni_create_vars_etcd_ssl }}/etcd-{{ inventory_hostname }}.key
+
+client-transport-security:
+  client-cert-auth: true
+  trusted-ca-file: {{ patroni_create_vars_ca_cert_dir }}/ca.crt
+  cert-file: {{ patroni_create_vars_etcd_ssl }}/etcd-{{ inventory_hostname }}.crt
+  key-file: {{ patroni_create_vars_etcd_ssl }}/etcd-{{ inventory_hostname }}.key
+
+tls-min-version: TLS1.3

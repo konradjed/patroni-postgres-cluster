@@ -2,7 +2,7 @@
 
 - name: Create etcd data directory
   ansible.builtin.file:
-    path: "{{ patroni_etcd_data_dir }}"
+    path: "{{ patroni_create_vars_etcd_data_dir }}"
     state: directory
     owner: etcd
     group: etcd
@@ -10,7 +10,7 @@
 
 - name: Copy etcd config
   ansible.builtin.template:
-    src: etcd.conf.yaml.j2
+    src: config-files/etcd.conf.yaml.j2
     dest: /etc/etcd/etcd.conf.yaml
     mode: '0644'
     owner: etcd
@@ -34,7 +34,7 @@
 - name: Copy ssl certificates
   ansible.builtin.copy:
     src: "{{ item }}"
-    dest: "{{ patroni_etcd_ssl }}"
+    dest: "{{ patroni_create_vars_etcd_ssl }}"
     owner: etcd
     group: etcd
     mode: '0600'
@@ -52,7 +52,7 @@
 
 - name: Copy etcd service override
   ansible.builtin.template:
-    src: override.conf.j2
+    src: systemd/etcd-override.conf.j2
     dest: /etc/systemd/system/etcd.service.d/override.conf
     owner: root
     group: root
@@ -73,13 +73,13 @@
   ansible.builtin.command: |
     etcdctl \
       --endpoints=https://127.0.0.1:2379 \
-      --cacert={{ patroni_ca_cert_dir }}/ca.crt \
-      --cert={{ patroni_etcd_ssl }}/etcd-{{ inventory_hostname }}.crt \
-      --key={{ patroni_etcd_ssl }}/etcd-{{ inventory_hostname }}.key \
+      --cacert={{ patroni_create_vars_ca_cert_dir }}/ca.crt \
+      --cert={{ patroni_create_vars_etcd_ssl }}/etcd-{{ inventory_hostname }}.crt \
+      --key={{ patroni_create_vars_etcd_ssl }}/etcd-{{ inventory_hostname }}.key \
       endpoint health \
       --cluster
-  register: patroni_etcd_health
-  until: patroni_etcd_health.rc == 0
+  register: patroni_playbook_etcd_health
+  until: patroni_playbook_etcd_health.rc == 0
   retries: 12
   delay: 5
   changed_when: false

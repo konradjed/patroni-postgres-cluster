@@ -1,0 +1,16 @@
+[Unit]
+Description=Unlock Patroni data volumes using OpenBao
+Wants=network-online.target openbao-agent.service
+After=network-online.target openbao-agent.service
+Before=etcd.service percona-patroni.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/patroni/unlock-volumes
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec={{ (patroni_create_bao_token_wait_timeout | int) + 60 }}
+
+[Install]
+WantedBy=multi-user.target

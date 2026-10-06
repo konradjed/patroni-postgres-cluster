@@ -1,18 +1,5 @@
 ---
 
-- name: Verify required passwords are provided
-  ansible.builtin.assert:
-    that:
-      - patroni_postgres_password | default('') | length > 0
-      - patroni_replicator_password | default('') | length > 0
-      - patroni_repo_cipher_pass | default('') | length > 0
-      - patroni_dump_cipher_pass | default('') | length > 0
-      - patroni_minio_key | default('') | length > 0
-      - patroni_minio_secret | default('') | length > 0
-    fail_msg: >-
-      Please set patroni_postgres_password and patroni_replicator_password.
-    success_msg: "Passwords have been set."
-
 - name: Verify supported operating system
   ansible.builtin.assert:
     that:
@@ -33,6 +20,47 @@
       - item.gib | int > 0
       - item.owner | default('', true) | length > 0
     fail_msg: "Invalid data volume definition: {{ item }}"
-  loop: "{{ patroni_data_volumes }}"
+  loop: "{{ patroni_create_data_volumes }}"
   loop_control:
     label: "{{ item.name | default('<unnamed>', true) }}"
+
+- name: Verify unique data volume definitions
+  ansible.builtin.assert:
+    that:
+      - patroni_create_data_volumes | length > 0
+      - >-
+        patroni_create_data_volumes | map(attribute='name') | unique | length
+        == patroni_create_data_volumes | length
+      - >-
+        patroni_create_data_volumes | map(attribute='device') | unique | length
+        == patroni_create_data_volumes | length
+      - >-
+        patroni_create_data_volumes | map(attribute='path') | unique | length
+        == patroni_create_data_volumes | length
+    fail_msg: >-
+      Data volume names, devices and mount paths must be unique.
+
+- name: Verify required PostgreSQL and etcd volumes
+  ansible.builtin.assert:
+    that:
+      - >-
+        patroni_create_data_volumes
+        | selectattr('path', 'equalto', patroni_create_vars_postgres_main_dir)
+        | list | length == 1
+      - >-
+        patroni_create_data_volumes
+        | selectattr('path', 'equalto', patroni_create_vars_etcd_data_dir)
+        | list | length == 1
+      - >-
+        patroni_create_data_volumes
+        | selectattr('path', 'equalto', patroni_create_vars_postgres_main_dir)
+        | selectattr('owner', 'equalto', 'postgres')
+        | list | length == 1
+      - >-
+        patroni_create_data_volumes
+        | selectattr('path', 'equalto', patroni_create_vars_etcd_data_dir)
+        | selectattr('owner', 'equalto', 'etcd')
+        | list | length == 1
+    fail_msg: >-
+      Exactly one PostgreSQL volume owned by postgres and one etcd volume
+      owned by etcd must be configured.

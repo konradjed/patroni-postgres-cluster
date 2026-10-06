@@ -2,13 +2,13 @@
 
 - name: Trigger status handlers
   ansible.builtin.set_fact:
-    _trigger_status: true
+    patroni_playbook_trigger_status: true
   changed_when: true
   notify:
     - Patroni status
     - Etcd status
 
-- name: Show statuses now
+- name: Show status of percona patroni cluster services now
   ansible.builtin.meta: flush_handlers
 
 - name: Wait for cluster to be fully formed
@@ -16,24 +16,24 @@
     url: "https://{{ ansible_host }}:8008/cluster"
     method: GET
     return_content: true
-    client_cert: "{{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt"
-    client_key: "{{ patroni_patroni_ssl }}/patroni-{{ inventory_hostname }}.key"
-    ca_path: "{{ patroni_ca_cert_dir }}/ca.crt"
+    client_cert: "{{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt"
+    client_key: "{{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.key"
+    ca_path: "{{ patroni_create_vars_ca_cert_dir }}/ca.crt"
     validate_certs: true
-  register: patroni_cluster
+  register: patroni_playbook_cluster
   run_once: true
   until:
-    - patroni_cluster.json is defined
-    - patroni_cluster.json.members | selectattr('role', 'equalto', 'leader') | list | length == 1
-    - patroni_cluster.json.members | selectattr('state', 'equalto', 'streaming') | list | length == (groups[patroni_inventory_group] | length - 1)
-    - patroni_cluster.json.members | selectattr('role', 'in', ['sync_standby', 'quorum_standby']) | list | length >= 1
+    - patroni_playbook_cluster.json is defined
+    - patroni_playbook_cluster.json.members | selectattr('role', 'equalto', 'leader') | list | length == 1
+    - patroni_playbook_cluster.json.members | selectattr('state', 'equalto', 'streaming') | list | length == (groups[patroni_create_inventory_group] | length - 1)
+    - patroni_playbook_cluster.json.members | selectattr('role', 'in', ['sync_standby', 'quorum_standby']) | list | length >= 1
   retries: 60
   delay: 5
 
 - name: Show cluster members
   ansible.builtin.debug:
     msg: "{{ item.name }}: {{ item.role }} / {{ item.state }} / TL {{ item.timeline | default('-') }} / lag {{ item.lag | default(0) }}"
-  loop: "{{ patroni_cluster.json.members }}"
+  loop: "{{ patroni_playbook_cluster.json.members }}"
   loop_control:
     label: "{{ item.name }}"
   run_once: true

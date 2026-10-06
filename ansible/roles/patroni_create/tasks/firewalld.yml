@@ -2,13 +2,13 @@
 
 - name: Create patroni zone
   ansible.posix.firewalld:
-    zone: "{{ patroni_firewall_zone }}"
+    zone: "{{ patroni_create_firewall_zone }}"
     state: present
     permanent: true
 
 - name: Set default-deny
   ansible.posix.firewalld:
-    zone: "{{ patroni_firewall_zone }}"
+    zone: "{{ patroni_create_firewall_zone }}"
     target: DROP
     state: present
     permanent: true
@@ -17,12 +17,12 @@
 - name: Reload firewalld
   ansible.builtin.command: firewall-cmd --reload
 
-# Must be allowed before the source binding, otherwise SSH from patroni_subnet can be rejected
+# Must be allowed before the source binding, otherwise SSH from patroni_create_subnet can be rejected
 - name: Allow SSH in patroni zone
   ansible.posix.firewalld:
-    zone: "{{ patroni_firewall_zone }}"
+    zone: "{{ patroni_create_firewall_zone }}"
     rich_rule: >-
-      rule family="ipv4" source address="{{ patroni_management_cidr }}"
+      rule family="ipv4" source address="{{ patroni_create_management_cidr }}"
       service name="ssh" accept
     state: enabled
     permanent: true
@@ -30,11 +30,11 @@
 
 - name: Collect nodes ip addresses
   ansible.builtin.set_fact:
-    patroni_nodes_ips: "{{ groups[patroni_inventory_group] | map('extract', hostvars, 'ansible_host') | list }}"
+    patroni_playbook_nodes_ips: "{{ groups[patroni_create_inventory_group] | map('extract', hostvars, 'ansible_host') | list }}"
 
 - name: Allow on traffic between postgres nodes
   ansible.posix.firewalld:
-    zone: "{{ patroni_firewall_zone }}"
+    zone: "{{ patroni_create_firewall_zone }}"
     rich_rule: >-
       rule family="ipv4" source address="{{ item.0 }}/32"
       port port="{{ item.1 }}" protocol="tcp" accept
@@ -42,26 +42,26 @@
     permanent: true
     immediate: true
   with_nested:
-    - "{{ patroni_nodes_ips }}"
-    - "{{ patroni_firewall_ports }}"
+    - "{{ patroni_playbook_nodes_ips }}"
+    - "{{ patroni_create_firewall_ports }}"
 
 - name: Allow on access to PostgreSQL
   ansible.posix.firewalld:
-    zone: "{{ patroni_firewall_zone }}"
+    zone: "{{ patroni_create_firewall_zone }}"
     rich_rule: >-
       rule family="ipv4" source address="{{ item }}"
       port port="5432" protocol="tcp" accept
     state: enabled
     permanent: true
     immediate: true
-  loop: "{{ patroni_app_cidrs }}"
+  loop: "{{ patroni_create_app_cidrs }}"
 
 - name: Check default zone
   ansible.builtin.command: firewall-cmd --get-default-zone
-  register: patroni_default_zone
+  register: patroni_playbook_default_zone
   changed_when: false
 
 - name: Set default zone
-  ansible.builtin.command: firewall-cmd --set-default-zone={{ patroni_firewall_zone }}
-  when: patroni_default_zone.stdout | trim != patroni_firewall_zone
+  ansible.builtin.command: firewall-cmd --set-default-zone={{ patroni_create_firewall_zone }}
+  when: patroni_playbook_default_zone.stdout | trim != patroni_create_firewall_zone
   changed_when: true

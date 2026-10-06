@@ -1,0 +1,112 @@
+---
+
+- name: Create OpenBao Agent folder
+  ansible.builtin.file:
+    state: directory
+    path: "{{ item }}"
+    mode: '0750'
+    owner: openbao
+    group: openbao
+  loop:
+    - "{{ patroni_create_vars_openbao_config_dir }}"
+    - "{{ patroni_create_vars_openbao_cert_dir }}"
+
+- name: Copy certificates for openbao client
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ patroni_create_vars_openbao_cert_dir }}/{{ item.dest }}"
+    mode: "{{ item.mode }}"
+    owner: openbao
+    group: openbao
+  loop:
+    - { src: "certs/openbao/ob-client-{{ inventory_hostname }}.crt", dest: "ob-client-{{ inventory_hostname }}.crt", mode: "0644" }
+    - { src: "certs/openbao/ob-client-{{ inventory_hostname }}.key", dest: "ob-client-{{ inventory_hostname }}.key", mode: "0600" }
+
+- name: Copy agent.hcl file
+  ansible.builtin.template:
+    src: config-files/agent.hcl.j2
+    dest: "{{ patroni_create_vars_openbao_config_dir }}/agent.hcl"
+    mode: '0640'
+    owner: openbao
+    group: openbao
+
+- name: Copy openbao-agent systemd service file
+  ansible.builtin.template:
+    src: systemd/openbao-agent.service.j2
+    dest: /etc/systemd/system/openbao-agent.service
+    mode: '0644'
+    owner: root
+    group: root
+  notify: Reload systemd
+
+- name: Flush handler queue
+  ansible.builtin.meta: flush_handlers
+
+- name: Start and enable openbao-agent
+  ansible.builtin.systemd_service:
+    name: openbao-agent
+    state: started
+    enabled: true
+
+- name: Wait for OpenBao Agent token file
+  ansible.builtin.wait_for:
+    path: "{{ patroni_create_bao_token_path }}"
+    state: present
+    timeout: "{{ patroni_create_bao_token_wait_timeout }}"
+
+- name: Inspect OpenBao Agent token file
+  ansible.builtin.stat:
+    path: "{{ patroni_create_bao_token_path }}"
+  register: patroni_playbook_bao_token_stat
+
+- name: Verify OpenBao Agent token file
+  ansible.builtin.assert:
+    that:
+      - patroni_playbook_bao_token_stat.stat.exists
+      - patroni_playbook_bao_token_stat.stat.isreg
+      - patroni_playbook_bao_token_stat.stat.size | int > 0
+    fail_msg: >-
+      OpenBao Agent token file is missing or empty:
+      {{ patroni_create_bao_token_path }}
+    success_msg: "OpenBao Agent created a non-empty token file."
+
+- name: Create Patroni helper directory
+  ansible.builtin.file:
+    path: /usr/local/libexec/patroni
+    state: directory
+    owner: root
+    group: postgres
+    mode: '0750'
+
+- name: Install OpenBao secret getter
+  ansible.builtin.template:
+    src: openbao-wrappers/bao-read.j2
+    dest: /usr/local/libexec/patroni/bao-read
+    owner: root
+    group: postgres
+    mode: '0750'
+
+- name: Verify access to required secrets in OpenBao
+  ansible.builtin.shell: |
+    set -euo pipefail
+
+    secret_size="$(
+      /usr/local/libexec/patroni/bao-read \
+        {{ item.path | quote }} \
+        {{ item.key | quote }} |
+      wc -c
+    )"
+
+    test "$secret_size" -gt 0
+  args:
+    executable: /bin/bash
+  loop:
+    - {path: "{{ patroni_create_bao_postgres_password_path }}", key: "password"}
+    - {path: "{{ patroni_create_bao_replicator_password_path }}", key: "password"}
+    - {path: "{{ patroni_create_bao_app_user_password_path }}", key: "password"}
+    - {path: "{{ patroni_create_bao_pgbackrest_path }}", key: "cipher_pass"}
+    - {path: "{{ patroni_create_bao_pgdump_path }}", key: "cipher_pass"}
+    - {path: "{{ patroni_create_bao_s3_path }}", key: "access_key"}
+    - {path: "{{ patroni_create_bao_s3_path }}", key: "secret_key"}
+  changed_when: false
+  no_log: true

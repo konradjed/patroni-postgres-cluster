@@ -14,14 +14,14 @@ ALTER ROLE app_user WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION
 ALTER ROLE dumper WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
 GRANT pg_read_all_data TO dumper;
 
-SELECT 'CREATE DATABASE {{ patroni_app_db_name }} OWNER postgres'
-WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '{{ patroni_app_db_name }}')\gexec
+SELECT 'CREATE DATABASE {{ patroni_create_app_db_name }} OWNER postgres'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '{{ patroni_create_app_db_name }}')\gexec
 
-REVOKE CONNECT ON DATABASE {{ patroni_app_db_name }} FROM PUBLIC;
-GRANT CONNECT ON DATABASE {{ patroni_app_db_name }} TO app_user;
-GRANT CONNECT ON DATABASE {{ patroni_app_db_name }} TO dumper;
+REVOKE CONNECT ON DATABASE {{ patroni_create_app_db_name }} FROM PUBLIC;
+GRANT CONNECT ON DATABASE {{ patroni_create_app_db_name }} TO app_user;
+GRANT CONNECT ON DATABASE {{ patroni_create_app_db_name }} TO dumper;
 
-\connect {{ patroni_app_db_name }}
+\connect {{ patroni_create_app_db_name }}
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO app_user;

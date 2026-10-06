@@ -1,0 +1,121 @@
+namespace: /service/
+scope: {{ patroni_create_cluster_name }}
+name: {{ inventory_hostname }}
+
+restapi:
+    listen: 0.0.0.0:8008
+    connect_address: {{ ansible_host }}:8008
+    certfile: {{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt
+    keyfile: {{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.key
+    cafile: {{ patroni_create_vars_ca_cert_dir }}/ca.crt
+    verify_client: required
+
+ctl:
+    certfile: {{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt
+    keyfile: {{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.key
+    cacert: {{ patroni_create_vars_ca_cert_dir }}/ca.crt
+    insecure: false
+
+etcd3:
+    hosts: {% for host in groups[patroni_create_inventory_group] %}{{ hostvars[host].ansible_host }}:2379{% if not loop.last %},{% endif %}{% endfor +%}
+    protocol: https
+    cacert: {{ patroni_create_vars_ca_cert_dir }}/ca.crt
+    cert: {{ patroni_create_vars_patroni_ssl_client }}/dcsclient-{{ inventory_hostname }}.crt
+    key: {{ patroni_create_vars_patroni_ssl_client }}/dcsclient-{{ inventory_hostname }}.key
+
+bootstrap:
+  dcs:
+      ttl: 30
+      loop_wait: 10
+      retry_timeout: 10
+      primary_start_timeout: 0
+      maximum_lag_on_failover: 1048576
+      check_timeline: true
+      synchronous_mode: quorum
+      synchronous_node_count: 1
+      synchronous_mode_strict: true
+
+      postgresql:
+          use_pg_rewind: true
+          use_slots: true
+          parameters:
+              ssl: "on"
+              ssl_min_protocol_version: "TLSv1.3"
+              ssl_cert_file: {{ patroni_create_vars_postgres_ssl }}/pgsrv.crt
+              ssl_key_file: {{ patroni_create_vars_postgres_ssl }}/pgsrv.key
+              ssl_ca_file: {{ patroni_create_vars_ca_cert_dir }}/ca.crt
+              shared_preload_libraries: "pg_tde"
+              pg_tde.wal_encrypt: "off"
+              pg_tde.cipher: "aes_256"
+              synchronous_commit: "on"
+              password_encryption: scram-sha-256
+              wal_level: replica
+              hot_standby: "on"
+              wal_keep_size: 160MB
+              max_wal_senders: 5
+              max_replication_slots: 10
+              wal_log_hints: "on"
+              logging_collector: 'on'
+              max_wal_size: '10GB'
+              archive_mode: "on"
+              archive_timeout: 60s
+              archive_command: "/usr/local/libexec/patroni/pgbackrest-wrapper --stanza={{ patroni_create_cluster_name }} archive-push %p"
+              restore_command: "/usr/local/libexec/patroni/pgbackrest-wrapper --stanza={{ patroni_create_cluster_name }} archive-get %f %p"
+          pg_hba:
+              - local {{ patroni_create_app_db_name }} dumper peer map=dumpmap
+              - local all all          peer
+              - hostssl all all 127.0.0.1/32 scram-sha-256
+              - hostssl all all ::1/128 scram-sha-256
+              - hostssl replication replicator 127.0.0.1/32 scram-sha-256
+{% for host in groups[patroni_create_inventory_group] %}
+              - hostssl replication replicator {{ hostvars[host].ansible_host }}/32 scram-sha-256
+{% endfor %}
+{% for host in groups[patroni_create_inventory_group] %}
+              - hostssl postgres postgres {{ hostvars[host].ansible_host }}/32 scram-sha-256
+{% endfor %}
+{% for addr in patroni_create_app_cidrs %}
+              - hostssl {{ patroni_create_app_db_name }} app_user {{ addr }} scram-sha-256
+{% endfor %}
+          pg_ident:
+              - dumpmap postgres dumper
+              
+
+  initdb:
+      - encoding: UTF8
+      - data-checksums
+
+
+postgresql:
+    cluster_name: {{ patroni_create_cluster_name }}
+    listen: 0.0.0.0:5432
+    connect_address: {{ ansible_host }}:5432
+    data_dir: {{ patroni_create_vars_postgres_data_dir }}
+    bin_dir: {{ patroni_create_vars_postgres_bin }}
+    bin_name:
+      pg_basebackup: pg_tde_basebackup
+      pg_rewind: pg_tde_rewind
+    pgpass: /run/patroni/pgpass
+    authentication:
+        replication:
+            username: replicator
+            sslmode: verify-full
+            sslrootcert: {{ patroni_create_vars_ca_cert_dir }}/ca.crt
+        superuser:
+            username: postgres
+    parameters:
+        unix_socket_directories: "{{ patroni_create_vars_postgres_socket }}/"
+    create_replica_methods:
+        - basebackup
+    basebackup:
+        checkpoint: 'fast'
+
+watchdog:
+    mode: required
+    device: /dev/watchdog
+    safety_margin: 5
+
+tags:
+    nofailover: false
+    noloadbalance: false
+    clonefrom: false
+    nosync: false

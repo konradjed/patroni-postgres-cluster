@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly token_path={{ patroni_create_bao_token_path | quote }}
+readonly token_wait_timeout={{ patroni_create_bao_token_wait_timeout | int }}
+
+for ((elapsed = 0; elapsed < token_wait_timeout; elapsed++)); do
+    if [[ -s "$token_path" ]]; then
+        break
+    fi
+    sleep 1
+done
+
+if [[ ! -s "$token_path" ]]; then
+    echo "OpenBao Agent did not create a token within ${token_wait_timeout}s" >&2
+    exit 1
+fi
+
+unlock_volume() {
+    local device="$1"
+    local mapper="$2"
+    local secret_path="$3"
+
+    if cryptsetup status "$mapper" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    /usr/local/libexec/patroni/bao-read \
+        "$secret_path" \
+        key_b64 |
+    base64 --decode |
+    cryptsetup luksOpen \
+        --key-file=- \
+        "$device" \
+        "$mapper"
+}
+
+{% for volume in patroni_playbook_volumes %}
+unlock_volume \
+    {{ volume.device | quote }} \
+    {{ volume.mapper | quote }} \
+    {{ volume.secret_path | quote }}
+{% endfor %}
+
+{% for volume in patroni_playbook_volumes %}
+if ! mountpoint --quiet {{ volume.path | quote }}; then
+    mount {{ volume.path | quote }}
+fi
+{% endfor %}
