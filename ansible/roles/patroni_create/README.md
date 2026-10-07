@@ -15,7 +15,8 @@ Configuration changes on a running cluster are handled by a separate role.
 > before `patroni_create_wipe_existing_cluster` is enabled.
 
 The role assumes full control of PostgreSQL and etcd data, dedicated data
-disks, firewalld, `/etc/crypttab`, and the relevant systemd units.
+disks, firewalld, its volume entries in `/etc/crypttab`, and the relevant
+systemd units.
 
 ## What the role configures
 
@@ -38,7 +39,8 @@ disks, firewalld, `/etc/crypttab`, and the relevant systemd units.
 3. Install packages and prepare services.
 4. Validate the configured block devices, create fresh LUKS2 containers and
    filesystems, and mount the volumes.
-5. Replace `/etc/crypttab` with entries managed by this role.
+5. Remove the managed volume entries from `/etc/crypttab` and install the
+   OpenBao-backed unlock service.
 6. Configure the firewall, etcd, Patroni, PostgreSQL, and pgBackRest.
 7. Start the cluster and backup timers.
 8. Wait for a leader and streaming synchronous replicas.
@@ -115,9 +117,9 @@ endpoint list.
 
 > [!IMPORTANT]
 > The role intentionally stops cluster services, controls the host firewall,
-> writes `/etc/crypttab`, and may erase the block devices declared in
-> `patroni_create_data_volumes`. Review all values below for every host before running
-> the playbook.
+> removes its managed entries from `/etc/crypttab`, and may erase the block
+> devices declared in `patroni_create_data_volumes`. Review all values below
+> for every host before running the playbook.
 
 ### Secrets required before provisioning
 
@@ -141,18 +143,18 @@ Create the following secret paths and fields:
 
 | Secret path inside `patroni-secrets` | Field name | Contents |
 | --- | --- | --- |
-| `pg_cluster/nodes/pg1/luks/pgdata` | `key_b64` | Base64-encoded LUKS key for the PostgreSQL volume on `pg1`. |
-| `pg_cluster/nodes/pg1/luks/etcd` | `key_b64` | Base64-encoded LUKS key for the etcd volume on `pg1`. |
-| `pg_cluster/nodes/pg2/luks/pgdata` | `key_b64` | Base64-encoded LUKS key for the PostgreSQL volume on `pg2`. |
-| `pg_cluster/nodes/pg2/luks/etcd` | `key_b64` | Base64-encoded LUKS key for the etcd volume on `pg2`. |
-| `pg_cluster/nodes/pg3/luks/pgdata` | `key_b64` | Base64-encoded LUKS key for the PostgreSQL volume on `pg3`. |
-| `pg_cluster/nodes/pg3/luks/etcd` | `key_b64` | Base64-encoded LUKS key for the etcd volume on `pg3`. |
-| `pg_cluster/shared/pgbackrest` | `cipher_pass` | Shared pgBackRest repository encryption passphrase. |
-| `pg_cluster/shared/pgdump` | `cipher_pass` | Independent logical-dump encryption passphrase. |
-| `pg_cluster/shared/s3` | `access_key`, `secret_key` | Credentials for the S3-compatible backup storage. |
-| `pg_cluster/shared/postgresql/postgres` | `password` | PostgreSQL superuser password. |
-| `pg_cluster/shared/postgresql/replicator` | `password` | Streaming-replication password. |
-| `pg_cluster/shared/postgresql/app_user` | `password` | Application-role password. |
+| `pg-cluster/nodes/pg1/luks/pgdata` | `key_b64` | Base64-encoded LUKS key for the PostgreSQL volume on `pg1`. |
+| `pg-cluster/nodes/pg1/luks/etcd` | `key_b64` | Base64-encoded LUKS key for the etcd volume on `pg1`. |
+| `pg-cluster/nodes/pg2/luks/pgdata` | `key_b64` | Base64-encoded LUKS key for the PostgreSQL volume on `pg2`. |
+| `pg-cluster/nodes/pg2/luks/etcd` | `key_b64` | Base64-encoded LUKS key for the etcd volume on `pg2`. |
+| `pg-cluster/nodes/pg3/luks/pgdata` | `key_b64` | Base64-encoded LUKS key for the PostgreSQL volume on `pg3`. |
+| `pg-cluster/nodes/pg3/luks/etcd` | `key_b64` | Base64-encoded LUKS key for the etcd volume on `pg3`. |
+| `pg-cluster/shared/pgbackrest` | `cipher_pass` | Shared pgBackRest repository encryption passphrase. |
+| `pg-cluster/shared/pgdump` | `cipher_pass` | Independent logical-dump encryption passphrase. |
+| `pg-cluster/shared/s3` | `access_key`, `secret_key` | Credentials for the S3-compatible backup storage. |
+| `pg-cluster/shared/postgresql/postgres` | `password` | PostgreSQL superuser password. |
+| `pg-cluster/shared/postgresql/replicator` | `password` | Streaming-replication password. |
+| `pg-cluster/shared/postgresql/app_user` | `password` | Application-role password. |
 
 > [!IMPORTANT]
 > Each cluster node must have a separate LUKS secret for every encrypted
@@ -161,7 +163,7 @@ Create the following secret paths and fields:
 > must exactly match the name used for that node in the Ansible inventory, and
 > the volume name must exactly match its identifier in the node's storage
 > configuration. These names are case-sensitive. For example, node `pg1` and
-> volume `pgdata` use `pg_cluster/nodes/pg1/luks/pgdata`.
+> volume `pgdata` use `pg-cluster/nodes/pg1/luks/pgdata`.
 
 The resulting structure is:
 
@@ -169,7 +171,7 @@ The resulting structure is:
 namespace: patroni
 
 patroni-secrets/
-└── pg_cluster/
+└── pg-cluster/
     ├── nodes/
     │   ├── pg1/luks/{pgdata,etcd}
     │   ├── pg2/luks/{pgdata,etcd}
@@ -275,9 +277,12 @@ mapper, creates a new filesystem, and mounts it. A later run can reopen a LUKS
 container created with the same OpenBao key. This workflow does not migrate a
 container created with another key source.
 
-Replacing the complete `/etc/crypttab` is intentional for these dedicated
-hosts. Its entries use `noauto`; the OpenBao unlock service performs the actual
-unlock and mount after networking and OpenBao Agent authentication are ready.
+The PostgreSQL and etcd volumes are deliberately absent from `/etc/crypttab`.
+Otherwise systemd can start its generated cryptsetup units and request an
+interactive passphrase before OpenBao is available. The dedicated OpenBao
+unlock service retrieves each key after networking and Agent authentication,
+then opens and mounts the volumes. Entries unrelated to this role remain
+unchanged.
 
 ### Application database
 
@@ -287,7 +292,7 @@ unlock and mount after networking and OpenBao Agent authentication are ready.
 
 The bootstrap SQL creates or updates `app_user`, the local peer-authenticated
 `dumper` role, the application database, and `public.ha_probe`. The `app_user`
-password is read from `pg_cluster/shared/postgresql/app_user` in OpenBao.
+password is read from `pg-cluster/shared/postgresql/app_user` in OpenBao.
 
 ### S3, pgBackRest, and dumps
 
@@ -320,9 +325,9 @@ passphrase file.
 
 | Variable | Default path | Purpose |
 | --- | --- | --- |
-| `patroni_create_bao_pgbackrest_path` | `pg_cluster/shared/pgbackrest` | Contains the `cipher_pass` field for physical backups and WAL archives. |
-| `patroni_create_bao_pgdump_path` | `pg_cluster/shared/pgdump` | Contains the independent `cipher_pass` field for logical dumps. |
-| `patroni_create_bao_s3_path` | `pg_cluster/shared/s3` | Contains `access_key` and `secret_key` for pgBackRest and logical dumps. |
+| `patroni_create_bao_pgbackrest_path` | `pg-cluster/shared/pgbackrest` | Contains the `cipher_pass` field for physical backups and WAL archives. |
+| `patroni_create_bao_pgdump_path` | `pg-cluster/shared/pgdump` | Contains the independent `cipher_pass` field for logical dumps. |
+| `patroni_create_bao_s3_path` | `pg-cluster/shared/s3` | Contains `access_key` and `secret_key` for pgBackRest and logical dumps. |
 
 ### Internal path variables
 
@@ -440,8 +445,8 @@ skipped. The role then:
 3. validates every configured device against its declared type and size;
 4. retrieves each node-specific key from OpenBao, creates a new LUKS2 container
    and configured filesystem, then opens and mounts the mapper;
-5. replaces `/etc/crypttab` with generated LUKS UUID entries using `noauto` and
-   installs the OpenBao-backed unlock service;
+5. removes the managed volumes from `/etc/crypttab` and installs the
+   OpenBao-backed unlock service;
 6. configures the firewall, etcd, Patroni, PostgreSQL, and pgBackRest;
 7. starts the cluster, waits for one leader and streaming synchronous replicas,
    and creates the application database on the leader.
@@ -575,7 +580,7 @@ locally as the operating-system `postgres` user and use the interactive psql
 
 ### PostgreSQL `postgres` password
 
-OpenBao path: `pg_cluster/shared/postgresql/postgres`, field `password`.
+OpenBao path: `pg-cluster/shared/postgresql/postgres`, field `password`.
 
 1. Generate and retain the new and previous passwords securely.
 2. Connect to the current leader through the local Unix socket:
@@ -605,7 +610,7 @@ previous OpenBao value, and repeat the rolling Patroni restart.
 
 ### PostgreSQL `replicator` password
 
-OpenBao path: `pg_cluster/shared/postgresql/replicator`, field `password`.
+OpenBao path: `pg-cluster/shared/postgresql/replicator`, field `password`.
 
 1. Confirm that every replica is streaming and that no switchover or failover
    is in progress.
@@ -630,7 +635,7 @@ Do not execute an independent `ALTER ROLE` on each replica.
 
 ### PostgreSQL `app_user` password
 
-OpenBao path: `pg_cluster/shared/postgresql/app_user`, field `password`.
+OpenBao path: `pg-cluster/shared/postgresql/app_user`, field `password`.
 
 The application and database must change credentials as one coordinated
 operation because the role has one active password.
@@ -650,7 +655,7 @@ existing production cluster.
 
 ### S3 access credentials
 
-OpenBao path: `pg_cluster/shared/s3`, fields `access_key` and `secret_key`.
+OpenBao path: `pg-cluster/shared/s3`, fields `access_key` and `secret_key`.
 
 1. Create a second S3 or MinIO credential while the previous credential remains
    valid.
@@ -665,7 +670,7 @@ OpenBao path: `pg_cluster/shared/s3`, fields `access_key` and `secret_key`.
 
 ### pgBackRest repository cipher passphrase
 
-OpenBao path: `pg_cluster/shared/pgbackrest`, field `cipher_pass`.
+OpenBao path: `pg-cluster/shared/pgbackrest`, field `cipher_pass`.
 
 Do not overwrite this value for an existing repository. Existing repository
 metadata, backups, and archived WAL depend on the original passphrase. The
@@ -686,7 +691,7 @@ safest rotation is a new repository generation:
 
 ### Logical dump cipher passphrase
 
-OpenBao path: `pg_cluster/shared/pgdump`, field `cipher_pass`.
+OpenBao path: `pg-cluster/shared/pgdump`, field `cipher_pass`.
 
 1. Preserve the previous passphrase together with the range of dump object
    names that require it.
@@ -703,7 +708,7 @@ until all corresponding objects have expired or been deliberately removed.
 ### LUKS2 keys
 
 LUKS paths are node-specific:
-`pg_cluster/nodes/<node>/luks/<volume>`, field `key_b64`.
+`pg-cluster/nodes/<node>/luks/<volume>`, field `key_b64`.
 
 Rotate one node and one volume at a time:
 

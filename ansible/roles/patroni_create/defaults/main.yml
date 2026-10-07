@@ -47,11 +47,11 @@ patroni_create_bao_auth_path: patroni-cert
 patroni_create_bao_address: https://192.168.172.160:8200
 patroni_create_bao_token_path: /run/openbao-agent/token
 patroni_create_bao_secrets_mount: patroni-secrets
-patroni_create_bao_cluster_path: pg_cluster
+patroni_create_bao_cluster_path: pg-cluster
 patroni_create_bao_token_wait_timeout: 120
-patroni_create_bao_postgres_password_path: pg_cluster/shared/postgresql/postgres
-patroni_create_bao_replicator_password_path: pg_cluster/shared/postgresql/replicator
-patroni_create_bao_app_user_password_path: pg_cluster/shared/postgresql/app_user
+patroni_create_bao_postgres_password_path: "{{ patroni_create_bao_cluster_path }}/shared/postgresql/postgres"
+patroni_create_bao_replicator_password_path: "{{ patroni_create_bao_cluster_path }}/shared/postgresql/replicator"
+patroni_create_bao_app_user_password_path: "{{ patroni_create_bao_cluster_path }}/shared/postgresql/app"
 patroni_create_bao_pgbackrest_path: "{{ patroni_create_bao_cluster_path }}/shared/pgbackrest"
 patroni_create_bao_pgdump_path: "{{ patroni_create_bao_cluster_path }}/shared/pgdump"
 patroni_create_bao_s3_path: "{{ patroni_create_bao_cluster_path }}/shared/s3"

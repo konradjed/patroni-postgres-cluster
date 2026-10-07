@@ -1,3 +1,0 @@
-{% for volume, uuid in patroni_playbook_crypttab_entries %}
-{{ volume.mapper }} UUID={{ uuid | trim }} none noauto
-{% endfor %}

@@ -172,23 +172,15 @@
   when: item.rc == 1 or (patroni_create_wipe_existing_cluster | bool)
   changed_when: true
 
-- name: Read each volume's LUKS UUID
-  ansible.builtin.command: "cryptsetup luksUUID {{ item.device }}"
-  register: patroni_playbook_luks_uuids
-  changed_when: false
+- name: Remove OpenBao-managed volumes from crypttab
+  ansible.builtin.lineinfile:
+    path: /etc/crypttab
+    regexp: "^{{ item.mapper | regex_escape }}[ \\t]+"
+    state: absent
   loop: "{{ patroni_playbook_volumes }}"
   loop_control:
-    label: "{{ item.name }}"
-
-- name: Configure unattended unlock at boot
-  ansible.builtin.template:
-    src: config-files/crypttab.j2
-    dest: /etc/crypttab
-    owner: root
-    group: root
-    mode: '0600'
-  vars:
-    patroni_playbook_crypttab_entries: "{{ patroni_playbook_volumes | zip(patroni_playbook_luks_uuids.results | map(attribute='stdout') | list) | list }}"
+    label: "{{ item.mapper }}"
+  notify: Reload systemd
 
 - name: Install the mount guard used by the service units
   ansible.builtin.copy:

@@ -23,7 +23,7 @@
   ansible.builtin.include_tasks: bao_agent.yml
 
 # Validate the configured block devices, provision/open LUKS2 containers,
-# create filesystems, manage crypttab and mount the PostgreSQL and etcd volumes.
+# create filesystems and mount the PostgreSQL and etcd volumes.
 - name: Encrypt data volumes
   ansible.builtin.include_tasks: luks2.yml
 

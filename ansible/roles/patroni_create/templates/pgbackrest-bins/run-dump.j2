@@ -68,7 +68,7 @@ keys_file="$workdir/keys"
   || { echo "listing dumps failed." >&2; exit 1; }
 
 mapfile -t keys < "$keys_file"
-total="${#keys[@]}"
+{% raw %}total="${#keys[@]}"{% endraw %}
 if (( total > KEEP )); then
   for old in "${keys[@]:0:$(( total - KEEP ))}"; do
     [[ -z "$old" ]] && continue
