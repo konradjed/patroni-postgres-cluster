@@ -11,6 +11,8 @@
     - /etc/pgbackrest
     - "{{ patroni_create_vars_pgbackrest_data_dir }}"
     - "{{ patroni_create_vars_pgbackrest_log_dir }}"
+    - "{{ patroni_create_vars_pgback_dumps_dir }}"
+    - "{{ patroni_create_vars_pgback_config_dir }}"
 
 - name: Backup pgBackRest configuration
   ansible.builtin.copy:
@@ -40,13 +42,24 @@
     group: root
     mode: '0755'
 
-- name: Copy pgbackrest wrapper
+- name: Copy pg_back config file
   ansible.builtin.template:
-    src: openbao-wrappers/pgbackrest-wrapper.j2
-    dest: /usr/local/libexec/patroni/pgbackrest-wrapper
+    src: config-files/pg_back.conf.j2
+    dest: "{{ patroni_create_vars_pgback_config_dir }}/pg_back.conf"
+    owner: postgres
+    group: postgres
+    mode: '0640'
+
+- name: Copy wrappers
+  ansible.builtin.template:
+    src: "openbao-wrappers/{{ item }}.j2"
+    dest: "/usr/local/libexec/patroni/{{ item }}"
     owner: root
     group: postgres
     mode: '0750'
+  loop:
+    - pgbackrest-wrapper
+    - pgback-wrapper
 
 - name: Copy backup bin files
   ansible.builtin.template:
@@ -59,7 +72,6 @@
     - run-pgbackrest
     - run-dump
     - leader-gate
-    - s3-client.py
 
 - name: Load timers to systemd
   ansible.builtin.template:

@@ -105,7 +105,7 @@
     - {path: "{{ patroni_create_bao_replicator_password_path }}", key: "password"}
     - {path: "{{ patroni_create_bao_app_user_password_path }}", key: "password"}
     - {path: "{{ patroni_create_bao_pgbackrest_path }}", key: "cipher_pass"}
-    - {path: "{{ patroni_create_bao_pgdump_path }}", key: "cipher_pass"}
+    - {path: "{{ patroni_create_bao_pgdump_path }}", key: "cipher_pub_key"}
     - {path: "{{ patroni_create_bao_s3_path }}", key: "access_key"}
     - {path: "{{ patroni_create_bao_s3_path }}", key: "secret_key"}
   changed_when: false

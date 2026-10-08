@@ -78,7 +78,7 @@
           - "--set=bao_address={{ patroni_create_bao_address }}"
           - "--set=bao_mount={{ patroni_create_pg_tde_mount_path }}"
           - "--set=token_path={{ patroni_create_bao_token_path }}"
-          - "--set=ca_path={{ patroni_create_vars_ca_cert_dir }}/ca.crt"
+          - "--set=ca_path=/etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt"
           - "--set=bao_namespace={{ patroni_create_bao_secret_namespace }}"
           - --file=-
         stdin: |

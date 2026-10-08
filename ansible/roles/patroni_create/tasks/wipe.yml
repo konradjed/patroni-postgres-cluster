@@ -55,7 +55,7 @@
         return_content: true
         client_cert: "{{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt"
         client_key: "{{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.key"
-        ca_path: "{{ patroni_create_vars_ca_cert_dir }}/ca.crt"
+        ca_path: /etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt
       register: patroni_playbook_cluster_state
       changed_when: false
       failed_when: false

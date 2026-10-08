@@ -78,7 +78,6 @@
       - percona-postgresql18-server
       - python3-pip
       - python3-devel
-      - python3-boto3
       - binutils
       - percona-patroni
       - percona-pgbackrest
@@ -103,6 +102,11 @@
     - { service: "patroni", enabled: false, state: stopped, masked: true }
     - { service: "postgresql-18", enabled: false, state: stopped, masked: true }
 
+- name: Create runtime directories from tmpfiles rules
+  ansible.builtin.command:
+    cmd: systemd-tmpfiles --create
+  changed_when: false
+
 - name: Gather service facts
   ansible.builtin.service_facts:
 - name: Stop Percona Patroni if runs
@@ -121,18 +125,16 @@
     masked: false
   when: "'openbao-agent.service' in ansible_facts.services"
 
-- name: Create CA directory
-  ansible.builtin.file:
-    path: "{{ patroni_create_vars_ca_cert_dir }}"
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
-
 - name: Import CA certificate
   ansible.builtin.copy:
     src: certs/ca/ca.crt
-    dest: "{{ patroni_create_vars_ca_cert_dir }}/ca.crt"
+    dest: /etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt
     owner: root
     group: root
     mode: '0644'
+  register: patroni_playbook_import_ca_cert
+
+- name: Update CA trust
+  ansible.builtin.command: update-ca-trust extract
+  when: patroni_playbook_import_ca_cert.changed
+  changed_when: true
