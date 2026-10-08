@@ -1,6 +1,6 @@
 vault {
   address = "{{ patroni_create_bao_address }}"
-  ca_cert = "{{ patroni_create_vars_ca_cert_dir }}/ca.crt"
+  ca_cert = "/etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt"
 }
 
 auto_auth {
@@ -11,7 +11,7 @@ auto_auth {
 
     config = {
       name        = "{{ inventory_hostname }}"
-      ca_cert     = "{{ patroni_create_vars_ca_cert_dir }}/ca.crt"
+      ca_cert     = "/etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt"
       client_cert = "{{ patroni_create_vars_openbao_cert_dir }}/ob-client-{{ inventory_hostname }}.crt"
       client_key  = "{{ patroni_create_vars_openbao_cert_dir }}/ob-client-{{ inventory_hostname }}.key"
       reload      = true

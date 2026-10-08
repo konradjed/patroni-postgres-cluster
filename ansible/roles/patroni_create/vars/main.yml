@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT-0
 ---
 # vars file for patroni
-patroni_create_vars_ca_cert_dir: /etc/pki/patroni
 patroni_create_vars_etcd_data_dir: /var/lib/etcd
 patroni_create_vars_etcd_ssl: /etc/etcd/ssl
 patroni_create_vars_patroni_config_yaml: /etc/patroni/patroni.yml
@@ -17,6 +16,8 @@ patroni_create_vars_postgres_bin: /usr/pgsql-18/bin
 patroni_create_vars_postgres_ssl: /var/lib/pgsql/18/ssl
 patroni_create_vars_pgbackrest_data_dir: /var/lib/pgbackrest
 patroni_create_vars_pgbackrest_log_dir: /var/log/pgbackrest
+patroni_create_vars_pgback_dumps_dir: "{{ patroni_create_vars_postgres_main_dir }}/pg_back/dumps"
+patroni_create_vars_pgback_config_dir: "/etc/pg_back"
 patroni_create_vars_postgres_volume_name: >-
   {{
     patroni_create_data_volumes

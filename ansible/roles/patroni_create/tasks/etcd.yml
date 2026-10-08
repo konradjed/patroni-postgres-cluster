@@ -73,7 +73,7 @@
   ansible.builtin.command: |
     etcdctl \
       --endpoints=https://127.0.0.1:2379 \
-      --cacert={{ patroni_create_vars_ca_cert_dir }}/ca.crt \
+      --cacert=/etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt \
       --cert={{ patroni_create_vars_etcd_ssl }}/etcd-{{ inventory_hostname }}.crt \
       --key={{ patroni_create_vars_etcd_ssl }}/etcd-{{ inventory_hostname }}.key \
       endpoint health \

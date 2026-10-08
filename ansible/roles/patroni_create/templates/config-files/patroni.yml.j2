@@ -7,19 +7,19 @@ restapi:
     connect_address: {{ ansible_host }}:8008
     certfile: {{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt
     keyfile: {{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.key
-    cafile: {{ patroni_create_vars_ca_cert_dir }}/ca.crt
+    cafile: /etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt
     verify_client: required
 
 ctl:
     certfile: {{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.crt
     keyfile: {{ patroni_create_vars_patroni_ssl }}/patroni-{{ inventory_hostname }}.key
-    cacert: {{ patroni_create_vars_ca_cert_dir }}/ca.crt
+    cacert: /etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt
     insecure: false
 
 etcd3:
     hosts: {% for host in groups[patroni_create_inventory_group] %}{{ hostvars[host].ansible_host }}:2379{% if not loop.last %},{% endif %}{% endfor +%}
     protocol: https
-    cacert: {{ patroni_create_vars_ca_cert_dir }}/ca.crt
+    cacert: /etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt
     cert: {{ patroni_create_vars_patroni_ssl_client }}/dcsclient-{{ inventory_hostname }}.crt
     key: {{ patroni_create_vars_patroni_ssl_client }}/dcsclient-{{ inventory_hostname }}.key
 
@@ -43,7 +43,7 @@ bootstrap:
               ssl_min_protocol_version: "TLSv1.3"
               ssl_cert_file: {{ patroni_create_vars_postgres_ssl }}/pgsrv.crt
               ssl_key_file: {{ patroni_create_vars_postgres_ssl }}/pgsrv.key
-              ssl_ca_file: {{ patroni_create_vars_ca_cert_dir }}/ca.crt
+              ssl_ca_file: /etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt
               shared_preload_libraries: "pg_tde"
               pg_tde.wal_encrypt: "off"
               pg_tde.cipher: "aes_256"
@@ -99,7 +99,7 @@ postgresql:
         replication:
             username: replicator
             sslmode: verify-full
-            sslrootcert: {{ patroni_create_vars_ca_cert_dir }}/ca.crt
+            sslrootcert: /etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt
         superuser:
             username: postgres
     parameters:

@@ -1,0 +1,37 @@
+#Main settings
+host = {{ patroni_create_vars_postgres_socket }}
+port = 5432
+user = dumper
+dbname = {{ patroni_create_app_db_name }}
+bin_directory = {{ patroni_create_vars_postgres_bin }}
+backup_directory = {{ patroni_create_vars_pgback_dumps_dir }}
+backup_file_mode = 0600
+checksum_algorithm = sha256
+dump_only = true
+with_templates = false
+include_dbs = {{ patroni_create_app_db_name }}
+format = custom
+uniform_timestamp = true
+
+#Purge settings
+purge_min_keep = {{ patroni_create_dump_retention }}
+purge_remote = true
+purge_older_than = {{ patroni_create_dump_retention_days }}
+
+# Encryption settings
+encrypt = true
+encrypt_keep_source = false
+# The public key is read from OpenBao secret and
+# exported to environment variable by the wrapper script
+
+#S3 settings
+upload = s3
+upload_prefix = {{ patroni_create_dump_prefix }}
+delete_uploaded = yes
+s3_region = {{ patroni_create_s3_region }}
+s3_bucket = {{ patroni_create_s3_bucket_name }}
+s3_endpoint = https://{{ patroni_create_s3_endpoint }}:{{ patroni_create_s3_port }}
+s3_force_path = true
+s3_tls = true
+# S3 access key and secret are read from OpenBao secret and 
+# exported to environment variables by the wrapper script

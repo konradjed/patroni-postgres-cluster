@@ -28,7 +28,7 @@ fi
 
 export BAO_ADDR={{ patroni_create_bao_address | quote }}
 export BAO_NAMESPACE={{ patroni_create_bao_secret_namespace | quote }}
-export BAO_CACERT={{ (patroni_create_vars_ca_cert_dir ~ '/ca.crt') | quote }}
+export BAO_CACERT=/etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt
 export BAO_TOKEN
 
 BAO_TOKEN="$(<"$token_path")"

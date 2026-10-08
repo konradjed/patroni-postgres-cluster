@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly BAO_READ=/usr/local/libexec/patroni/bao-read
+
+CIPHER_PUBLIC_KEY="$(
+    "$BAO_READ" \
+        {{ patroni_create_bao_pgdump_path | quote }} \
+        cipher_pub_key
+)"
+
+AWS_ACCESS_KEY_ID="$(
+  "$BAO_READ" \
+    {{ patroni_create_bao_s3_path | quote }} \
+    access_key
+)"
+
+AWS_SECRET_ACCESS_KEY="$(
+  "$BAO_READ" \
+    {{ patroni_create_bao_s3_path | quote }} \
+    secret_key
+)"
+
+if [[ -z "$CIPHER_PUBLIC_KEY" ||
+      -z "$AWS_ACCESS_KEY_ID" ||
+      -z "$AWS_SECRET_ACCESS_KEY" ]]; then
+    echo "PG_BACK ~ One or more required values received from OpenBao are empty" >&2
+    exit 1
+fi
+
+export AWS_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY
+
+exec /usr/bin/pg_back --config="{{ patroni_create_vars_pgback_config_dir }}/pg_back.conf" --cipher-public-key="$CIPHER_PUBLIC_KEY"

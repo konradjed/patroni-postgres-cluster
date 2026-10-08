@@ -7,7 +7,7 @@ repo1-storage-port={{ patroni_create_s3_port }}
 repo1-s3-region={{ patroni_create_s3_region }}
 repo1-s3-uri-style=path
 
-repo1-storage-ca-file={{ patroni_create_vars_ca_cert_dir }}/ca.crt
+repo1-storage-ca-file=/etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt
 repo1-cipher-type=aes-256-cbc
 
 

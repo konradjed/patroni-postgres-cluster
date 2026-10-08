@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly DB="{{ patroni_create_app_db_name }}"
-readonly PREFIX="{{ patroni_create_dump_prefix }}"
-readonly KEEP={{ patroni_create_dump_retention }}
 readonly GATE=/usr/local/lib/patroni/leader-gate
-readonly BAO_READ=/usr/local/libexec/patroni/bao-read
-readonly S3_CLIENT=/usr/local/lib/patroni/s3-client.py
 
 if "$GATE"; then
   :
@@ -18,63 +13,6 @@ else
   esac
 fi
 
-PATRONI_DUMP_CIPHER_PASS="$(
-  "$BAO_READ" \
-    {{ patroni_create_bao_pgdump_path | quote }} \
-    cipher_pass
-)"
+echo "Leader confirmed; dumping..."
 
-AWS_ACCESS_KEY_ID="$(
-  "$BAO_READ" \
-    {{ patroni_create_bao_s3_path | quote }} \
-    access_key
-)"
-
-AWS_SECRET_ACCESS_KEY="$(
-  "$BAO_READ" \
-    {{ patroni_create_bao_s3_path | quote }} \
-    secret_key
-)"
-
-if [[ -z "$PATRONI_DUMP_CIPHER_PASS" ||
-      -z "$AWS_ACCESS_KEY_ID" ||
-      -z "$AWS_SECRET_ACCESS_KEY" ]]; then
-  echo "One or more dump secrets received from OpenBao are empty" >&2
-  exit 1
-fi
-
-workdir="$(mktemp -d)"
-trap 'rm -rf "$workdir"' EXIT
-stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-readonly OBJECT="$PREFIX/${DB}-${stamp}.dump.enc"
-
-echo "Leader confirmed; dumping $DB."
-{{ patroni_create_vars_postgres_bin | quote }}/pg_dump --format=custom --dbname="$DB" --username=dumper --file="$workdir/dump" \
-  || { echo "pg_dump failed; nothing uploaded." >&2; exit 1; }
-
-export PATRONI_DUMP_CIPHER_PASS
-export AWS_ACCESS_KEY_ID
-export AWS_SECRET_ACCESS_KEY
-
-openssl enc -aes-256-cbc -pbkdf2 -salt \
-  -in "$workdir/dump" -out "$workdir/dump.enc" -pass env:PATRONI_DUMP_CIPHER_PASS \
-  || { echo "encryption failed; nothing uploaded." >&2; exit 1; }
-
-echo "Uploading $OBJECT ($(stat -c%s "$workdir/dump.enc") bytes)."
-"$S3_CLIENT" put "$workdir/dump.enc" "$OBJECT" || { echo "upload failed." >&2; exit 1; }
-
-keys_file="$workdir/keys"
-"$S3_CLIENT" list "$PREFIX/" | sort > "$keys_file" \
-  || { echo "listing dumps failed." >&2; exit 1; }
-
-mapfile -t keys < "$keys_file"
-{% raw %}total="${#keys[@]}"{% endraw %}
-if (( total > KEEP )); then
-  for old in "${keys[@]:0:$(( total - KEEP ))}"; do
-    [[ -z "$old" ]] && continue
-    echo "Expiring old dump: $old"
-    "$S3_CLIENT" delete "$old" || true
-  done
-fi
-
-echo "Dump complete: $OBJECT"
+exec /usr/local/libexec/patroni/pgback-wrapper
