@@ -68,6 +68,9 @@
   ansible.builtin.uri:
     url: https://github.com/orgrim/pg_back/releases/download/v2.6.0/pg-back-2.6.0-x86_64.rpm
     dest: /tmp/pg-back-2.6.0-x86_64.rpm
+    status_code:
+      - 200
+      - 304
 
 - name: Install cluster packages
   ansible.builtin.dnf:
@@ -83,12 +86,17 @@
       - percona-pgbackrest
       - percona-pg_tde18
       - openbao
-      - /tmp/pg-back-2.6.0-x86_64.rpm
     state: present
   register: patroni_playbook_cluster_packages
   retries: 5
   delay: 15
   until: patroni_playbook_cluster_packages is succeeded
+
+- name: Install pg_back
+  ansible.builtin.dnf:
+    name: /tmp/pg-back-2.6.0-x86_64.rpm
+    state: present
+    disable_gpg_check: true
 
 - name: Ensure systemd services are in the desired state
   ansible.builtin.systemd_service:
