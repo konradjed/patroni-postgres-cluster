@@ -56,6 +56,10 @@ patroni_create_bao_pgbackrest_path: "{{ patroni_create_bao_cluster_path }}/share
 patroni_create_bao_pgdump_path: "{{ patroni_create_bao_cluster_path }}/shared/pgdump"
 patroni_create_bao_s3_path: "{{ patroni_create_bao_cluster_path }}/shared/s3"
 
+patroni_create_pg_tde_provider_name: openbao-patroni
+patroni_create_pg_tde_mount_path: pg-tde
+patroni_create_pg_tde_key_name: pg-cluster-default-key-v1
+
 
 # ==============================================================================
 # !!! DANGER !!! DESTRUCTIVE AND IRREVERSIBLE CLUSTER RECREATION !!! DANGER !!!

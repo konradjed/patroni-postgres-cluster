@@ -108,12 +108,14 @@
   changed_when: false
   when: patroni_playbook_stanza_gate.rc == 0
 
-- name: Enable and start the backup timers
-  ansible.builtin.systemd_service:
-    name: "{{ item }}"
-    enabled: true
-    state: started
-  loop:
-    - patroni-full-backup.timer
-    - patroni-incre-backup.timer
-    - patroni-pgdump.timer
+# This task was moved to pg_tde.yml so backup jobs cannot start before the
+# OpenBao provider and default pg_tde principal key are configured and verified.
+# - name: Enable and start the backup timers
+#   ansible.builtin.systemd_service:
+#     name: "{{ item }}"
+#     enabled: true
+#     state: started
+#   loop:
+#     - patroni-full-backup.timer
+#     - patroni-incre-backup.timer
+#     - patroni-pgdump.timer

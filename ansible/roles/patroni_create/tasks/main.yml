@@ -42,8 +42,8 @@
 - name: Configure Patroni cluster
   ansible.builtin.include_tasks: patroni.yml
 
-# Configure the encrypted S3 pgBackRest repository, helper programs and backup
-# timers, then start Patroni and validate the repository stanza.
+# Configure the encrypted S3 pgBackRest repository and helper programs, then
+# start Patroni and validate the repository stanza.
 - name: Configure pgBackRest
   ansible.builtin.include_tasks: backup.yml
 
@@ -51,3 +51,7 @@
 # standby, then print the final member state.
 - name: Check cluster status
   ansible.builtin.include_tasks: check_status.yml
+
+# Configure pg_tde on the Patroni leader node
+- name: Configure pg_tde
+  ansible.builtin.include_tasks: pg_tde.yml

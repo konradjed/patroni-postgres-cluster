@@ -17,11 +17,17 @@ GRANT pg_read_all_data TO dumper;
 SELECT 'CREATE DATABASE {{ patroni_create_app_db_name }} OWNER postgres'
 WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '{{ patroni_create_app_db_name }}')\gexec
 
+ALTER DATABASE {{ patroni_create_app_db_name }} SET default_table_access_method = 'tde_heap';
+
+ALTER DATABASE {{ patroni_create_app_db_name }} SET pg_tde.enforce_encryption = 'on';
+
 REVOKE CONNECT ON DATABASE {{ patroni_create_app_db_name }} FROM PUBLIC;
 GRANT CONNECT ON DATABASE {{ patroni_create_app_db_name }} TO app_user;
 GRANT CONNECT ON DATABASE {{ patroni_create_app_db_name }} TO dumper;
 
 \connect {{ patroni_create_app_db_name }}
+
+CREATE EXTENSION IF NOT EXISTS pg_tde;
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO app_user;

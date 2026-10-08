@@ -1,0 +1,194 @@
+---
+
+- name: Check which node is the Patroni leader for pg_tde configuration
+  ansible.builtin.command: /usr/local/lib/patroni/leader-gate
+  register: patroni_playbook_pg_tde_leader
+  changed_when: false
+  failed_when: patroni_playbook_pg_tde_leader.rc not in [0, 1]
+
+- name: Configure pg_tde on the Patroni leader
+  when: patroni_playbook_pg_tde_leader.rc == 0
+  become_user: postgres
+  block:
+    - name: Check whether pg_tde extension is enabled
+      ansible.builtin.command:
+        argv:
+          - "{{ patroni_create_vars_postgres_bin }}/psql"
+          - --no-psqlrc
+          - "--dbname={{ item }}"
+          - --tuples-only
+          - --no-align
+          - --set=ON_ERROR_STOP=1
+          - >-
+            --command=SELECT EXISTS (
+                SELECT 1
+                FROM pg_extension
+                WHERE extname = 'pg_tde'
+              );
+      loop:
+        - postgres
+        - template1
+      loop_control:
+        label: "{{ item }}"
+      register: patroni_playbook_pg_tde_extension_status
+      changed_when: false
+
+    - name: Enable pg_tde extension where required
+      ansible.builtin.command:
+        argv:
+          - "{{ patroni_create_vars_postgres_bin }}/psql"
+          - --no-psqlrc
+          - "--dbname={{ item.item }}"
+          - --set=ON_ERROR_STOP=1
+          - --command=CREATE EXTENSION pg_tde;
+      loop: "{{ patroni_playbook_pg_tde_extension_status.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      when: item.stdout | trim == 'f'
+      changed_when: true
+
+    - name: Check whether the OpenBao global provider exists
+      ansible.builtin.command:
+        argv:
+          - "{{ patroni_create_vars_postgres_bin }}/psql"
+          - --no-psqlrc
+          - --dbname=postgres
+          - --tuples-only
+          - --no-align
+          - --set=ON_ERROR_STOP=1
+          - "--set=provider_name={{ patroni_create_pg_tde_provider_name }}"
+          - --file=-
+        stdin: |
+          SELECT EXISTS (
+            SELECT 1
+            FROM pg_tde_list_all_global_key_providers()
+            WHERE name = :'provider_name'
+          );
+      register: patroni_playbook_pg_tde_provider_state
+      changed_when: false
+
+    - name: Register OpenBao as the global pg_tde key provider
+      ansible.builtin.command:
+        argv:
+          - "{{ patroni_create_vars_postgres_bin }}/psql"
+          - --no-psqlrc
+          - --dbname=postgres
+          - --set=ON_ERROR_STOP=1
+          - "--set=provider_name={{ patroni_create_pg_tde_provider_name }}"
+          - "--set=bao_address={{ patroni_create_bao_address }}"
+          - "--set=bao_mount={{ patroni_create_pg_tde_mount_path }}"
+          - "--set=token_path={{ patroni_create_bao_token_path }}"
+          - "--set=ca_path={{ patroni_create_vars_ca_cert_dir }}/ca.crt"
+          - "--set=bao_namespace={{ patroni_create_bao_secret_namespace }}"
+          - --file=-
+        stdin: |
+          SELECT pg_tde_add_global_key_provider_vault_v2(
+            :'provider_name',
+            :'bao_address',
+            :'bao_mount',
+            :'token_path',
+            :'ca_path',
+            :'bao_namespace'
+          );
+      when: patroni_playbook_pg_tde_provider_state.stdout | trim == 'f'
+      changed_when: true
+
+    - name: Read the current default pg_tde key
+      ansible.builtin.command:
+        argv:
+          - "{{ patroni_create_vars_postgres_bin }}/psql"
+          - --no-psqlrc
+          - --dbname=postgres
+          - --tuples-only
+          - --no-align
+          - "--command=SELECT COALESCE((SELECT key_name FROM pg_tde_default_key_info()), '');"
+      register: patroni_playbook_pg_tde_current_key
+      changed_when: false
+
+    - name: Refuse to replace a different pg_tde default key automatically
+      ansible.builtin.assert:
+        that:
+          - patroni_playbook_pg_tde_current_key.stdout | trim in ['', patroni_create_pg_tde_key_name]
+        fail_msg: >-
+          A different pg_tde default key is already configured:
+          {{ patroni_playbook_pg_tde_current_key.stdout | trim }}.
+
+    - name: Try to set an existing pg_tde principal key as default
+      ansible.builtin.command:
+        argv:
+          - "{{ patroni_create_vars_postgres_bin }}/psql"
+          - --no-psqlrc
+          - --dbname=postgres
+          - --set=ON_ERROR_STOP=1
+          - "--set=key_name={{ patroni_create_pg_tde_key_name }}"
+          - "--set=provider_name={{ patroni_create_pg_tde_provider_name }}"
+          - --file=-
+        stdin: |
+          SELECT pg_tde_set_default_key_using_global_key_provider(
+            :'key_name', :'provider_name'
+          );
+      register: patroni_playbook_pg_tde_existing_key
+      when: patroni_playbook_pg_tde_current_key.stdout | trim == ''
+      failed_when: false
+      changed_when: patroni_playbook_pg_tde_existing_key.rc == 0
+
+    - name: Create the default pg_tde principal key
+      ansible.builtin.command:
+        argv:
+          - "{{ patroni_create_vars_postgres_bin }}/psql"
+          - --no-psqlrc
+          - --dbname=postgres
+          - --set=ON_ERROR_STOP=1
+          - "--set=key_name={{ patroni_create_pg_tde_key_name }}"
+          - "--set=provider_name={{ patroni_create_pg_tde_provider_name }}"
+          - --file=-
+        stdin: |
+          SELECT pg_tde_create_key_using_global_key_provider(
+            :'key_name', :'provider_name'
+          );
+      when:
+        - patroni_playbook_pg_tde_current_key.stdout | trim == ''
+        - (patroni_playbook_pg_tde_existing_key.rc | default(1)) != 0
+      changed_when: true
+
+    - name: Set the newly created pg_tde principal key as default
+      ansible.builtin.command:
+        argv:
+          - "{{ patroni_create_vars_postgres_bin }}/psql"
+          - --no-psqlrc
+          - --dbname=postgres
+          - --set=ON_ERROR_STOP=1
+          - "--set=key_name={{ patroni_create_pg_tde_key_name }}"
+          - "--set=provider_name={{ patroni_create_pg_tde_provider_name }}"
+          - --file=-
+        stdin: |
+          SELECT pg_tde_set_default_key_using_global_key_provider(
+            :'key_name', :'provider_name'
+          );
+      when:
+        - patroni_playbook_pg_tde_current_key.stdout | trim == ''
+        - (patroni_playbook_pg_tde_existing_key.rc | default(1)) != 0
+      changed_when: true
+
+    - name: Verify access to the default pg_tde key
+      ansible.builtin.command:
+        argv:
+          - "{{ patroni_create_vars_postgres_bin }}/psql"
+          - --no-psqlrc
+          - --dbname=postgres
+          - --set=ON_ERROR_STOP=1
+          - --command=SELECT pg_tde_verify_default_key();
+      changed_when: false
+
+# Enable backup timers on every node only after pg_tde has configured and
+# verified the OpenBao provider and default principal key. This prevents a
+# backup from starting while the pg_tde key configuration is still changing.
+- name: Enable and start the backup timers
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - patroni-full-backup.timer
+    - patroni-incre-backup.timer
+    - patroni-pgdump.timer
