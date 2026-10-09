@@ -4,3 +4,7 @@ ansible_ssh_user: user
 patroni_create_s3_bucket_name: patroni-bucket
 patroni_create_s3_region: eu-central-1
 minio_alias: patroni
+patroni_create_enable_alloy_ui: true
+patroni_create_management_cidr: "192.168.172.1/32"
+patroni_create_app_cidrs:
+  - 192.168.172.150/32

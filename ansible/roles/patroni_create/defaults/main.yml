@@ -61,6 +61,13 @@ patroni_create_pg_tde_provider_name: openbao-patroni
 patroni_create_pg_tde_mount_path: pg-tde
 patroni_create_pg_tde_key_name: pg-cluster-default-key-v1
 
+patroni_create_enable_alloy: true
+patroni_create_enable_alloy_ui: false
+patroni_create_alloy_logging_level: info
+patroni_create_alloy_include_exporter_metrics: true
+patroni_create_alloy_scrape_interval: 15s
+patroni_create_alloy_remote_write_url:
+
 
 # ==============================================================================
 # !!! DANGER !!! DESTRUCTIVE AND IRREVERSIBLE CLUSTER RECREATION !!! DANGER !!!

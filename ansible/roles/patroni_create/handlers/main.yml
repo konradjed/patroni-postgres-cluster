@@ -23,3 +23,8 @@
   ansible.builtin.debug:
     msg: "Etcd status for {{ inventory_hostname }}: {{ ansible_facts.services['etcd.service'].state }}"
   listen: "Etcd status"
+
+- name: Restart Alloy
+  ansible.builtin.systemd_service:
+    name: alloy
+    state: restarted
