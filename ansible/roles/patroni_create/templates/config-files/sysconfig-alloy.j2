@@ -1,0 +1,6 @@
+CONFIG_FILE="{{ patroni_create_vars_alloy_config_dir }}/config.alloy"
+OTEL_CONFIG_FILE="{{ patroni_create_vars_alloy_config_dir }}/config.yaml"
+CUSTOM_ARGS="--server.http.listen-addr={{ '0.0.0.0' if patroni_create_enable_alloy_ui | bool else '127.0.0.1' }}:12345"
+OTEL_CUSTOM_ARGS=""
+ALLOY_OTEL_MODE=""
+RESTART_ON_UPGRADE=true

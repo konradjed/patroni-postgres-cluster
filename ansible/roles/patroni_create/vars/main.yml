@@ -35,3 +35,4 @@ patroni_create_vars_etcd_volume_name: >-
   }}
 patroni_create_vars_openbao_cert_dir: /etc/openbao-agent/tls
 patroni_create_vars_openbao_config_dir: /etc/openbao-agent
+patroni_create_vars_alloy_config_dir: /etc/alloy

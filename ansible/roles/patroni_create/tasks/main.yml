@@ -55,3 +55,8 @@
 # Configure pg_tde on the Patroni leader node
 - name: Configure pg_tde
   ansible.builtin.include_tasks: pg_tde.yml
+
+# Configure Alloy on patroni nodes
+- name: Configure Alloy
+  ansible.builtin.include_tasks: alloy.yml
+  when: patroni_create_enable_alloy

@@ -1,0 +1,33 @@
+logging {
+  level = "{{ patroni_create_alloy_logging_level }}"
+}
+
+prometheus.exporter.unix "node" {
+  include_exporter_metrics = {{ patroni_create_alloy_include_exporter_metrics | bool | lower }}
+  enable_collectors = ["systemd"]
+  disable_collectors = ["mdadm"]
+  systemd {
+    enable_restarts = true
+    start_time = true
+    unit_include = "^(percona-patroni|etcd|openbao-agent|patroni-unlock-volumes|patroni-pgdump|patroni-backup@(full|incr)|alloy)\\.service$"
+  }
+}
+
+prometheus.scrape "node" {
+  targets = array.concat(
+    prometheus.exporter.unix.node.targets,
+    [{ job = "alloy", __address__ = "127.0.0.1:12345" }],
+  )
+  scrape_interval = "{{ patroni_create_alloy_scrape_interval }}"
+  forward_to = [prometheus.remote_write.metrics.receiver]
+}
+
+prometheus.remote_write "metrics" {
+  external_labels = {
+    cluster  = "{{ patroni_create_cluster_name }}",
+    node = "{{ inventory_hostname }}",
+  }
+  endpoint {
+    url = "{{ patroni_create_alloy_remote_write_url }}"
+  }
+}

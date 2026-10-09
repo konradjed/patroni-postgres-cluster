@@ -45,6 +45,20 @@
     - "{{ patroni_playbook_nodes_ips }}"
     - "{{ patroni_create_firewall_ports }}"
 
+- name: Allow on access to Alloy UI
+  ansible.posix.firewalld:
+    zone: "{{ patroni_create_firewall_zone }}"
+    rich_rule: >-
+      rule family="ipv4" source address="{{ patroni_create_management_cidr }}"
+      port port="12345" protocol="tcp" accept
+    state: enabled
+    permanent: true
+    immediate: true
+  when:
+    - patroni_create_enable_alloy
+    - patroni_create_enable_alloy_ui
+    - patroni_create_management_cidr | length > 0
+
 - name: Allow on access to PostgreSQL
   ansible.posix.firewalld:
     zone: "{{ patroni_create_firewall_zone }}"

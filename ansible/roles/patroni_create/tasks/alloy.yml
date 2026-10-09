@@ -1,0 +1,46 @@
+---
+
+- name: Import Alloy GPG key
+  ansible.builtin.rpm_key:
+    key: https://rpm.grafana.com/gpg.key
+    state: present
+  register: patroni_playbook_alloy_key
+  retries: 5
+  delay: 15
+  until: patroni_playbook_alloy_key is succeeded
+
+- name: Configure Grafana RPM repo
+  ansible.builtin.yum_repository:
+    name: grafana
+    description: Grafana RPM Repository
+    baseurl: https://rpm.grafana.com
+    repo_gpgcheck: true
+    enabled: true
+    gpgcheck: true
+    gpgkey: https://rpm.grafana.com/gpg.key
+    sslverify: true
+    sslcacert: /etc/pki/tls/certs/ca-bundle.crt
+    state: present
+
+- name: Install Alloy
+  ansible.builtin.dnf:
+    name: alloy
+    state: present
+
+- name: Copy Alloy config files
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: '0644'
+    owner: root
+    group: root
+  loop:
+    - { src: "config-files/config.alloy.j2", dest: "{{ patroni_create_vars_alloy_config_dir }}/config.alloy" }
+    - { src: "config-files/sysconfig-alloy.j2", dest: "/etc/sysconfig/alloy" }
+  notify: Restart Alloy
+
+- name: Start and enable Alloy service
+  ansible.builtin.systemd_service:
+    name: alloy
+    state: started
+    enabled: true
