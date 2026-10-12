@@ -26,7 +26,7 @@ encrypt_keep_source = false
 
 #S3 settings
 upload = s3
-upload_prefix = {{ patroni_create_dump_prefix }}
+upload_prefix = {{ patroni_create_s3_dump_prefix }}
 delete_uploaded = yes
 s3_region = {{ patroni_create_s3_region }}
 s3_bucket = {{ patroni_create_s3_bucket_name }}

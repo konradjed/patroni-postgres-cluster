@@ -1,6 +1,6 @@
 [global]
 repo1-type=s3
-repo1-path={{ patroni_create_s3_prefix }}
+repo1-path={{ patroni_create_s3_backup_prefix }}
 repo1-s3-bucket={{ patroni_create_s3_bucket_name }}
 repo1-s3-endpoint={{ patroni_create_s3_endpoint }}
 repo1-storage-port={{ patroni_create_s3_port }}
@@ -11,12 +11,13 @@ repo1-storage-ca-file=/etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt
 repo1-cipher-type=aes-256-cbc
 
 
-repo1-retention-full=2
+repo1-retention-full={{ patroni_create_pgbackrest_retention_full }}
 
-process-max=2
-start-fast=y
-log-level-console=info
-log-level-file=detail
+process-max={{ patroni_create_pgbackrest_process_max }}
+start-fast={{ patroni_create_pgbackrest_start_fast | bool | ternary('y', 'n') }}
+archive-timeout={{ patroni_create_pgbackrest_archive_timeout }}
+log-level-console={{ patroni_create_pgbackrest_log_level_console }}
+log-level-file={{ patroni_create_pgbackrest_log_level_file }}
 
 [{{ patroni_create_cluster_name }}]
 pg1-path={{ patroni_create_vars_postgres_data_dir }}

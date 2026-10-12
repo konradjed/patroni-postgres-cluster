@@ -25,15 +25,15 @@ etcd3:
 
 bootstrap:
   dcs:
-      ttl: 30
-      loop_wait: 10
-      retry_timeout: 10
-      primary_start_timeout: 0
-      maximum_lag_on_failover: 1048576
-      check_timeline: true
-      synchronous_mode: quorum
-      synchronous_node_count: 1
-      synchronous_mode_strict: true
+      ttl: {{ patroni_create_patroni_ttl }}
+      loop_wait: {{ patroni_create_patroni_loop_wait }}
+      retry_timeout: {{ patroni_create_patroni_retry_timeout }}
+      primary_start_timeout: {{ patroni_create_patroni_primary_start_timeout }}
+      maximum_lag_on_failover: {{ patroni_create_patroni_maximum_lag_on_failover }}
+      check_timeline: {{ patroni_create_patroni_check_timeline }}
+      synchronous_mode: {{ patroni_create_patroni_synchronous_mode }}
+      synchronous_node_count: {{ patroni_create_patroni_synchronous_node_count }}
+      synchronous_mode_strict: {{ patroni_create_patroni_synchronous_mode_strict }}
 
       postgresql:
           use_pg_rewind: true
@@ -51,14 +51,14 @@ bootstrap:
               password_encryption: scram-sha-256
               wal_level: replica
               hot_standby: "on"
-              wal_keep_size: 160MB
-              max_wal_senders: 5
-              max_replication_slots: 10
+              wal_keep_size: {{ patroni_create_postgres_wal_keep_size }}
+              max_wal_senders: {{ patroni_create_postgres_max_wal_senders }}
+              max_replication_slots: {{ patroni_create_postgres_max_replication_slots }}
               wal_log_hints: "on"
               logging_collector: 'on'
-              max_wal_size: '10GB'
+              max_wal_size: {{ patroni_create_postgres_max_wal_size }}
               archive_mode: "on"
-              archive_timeout: 60s
+              archive_timeout: {{ patroni_create_postgres_archive_timeout }}
               archive_command: "/usr/local/libexec/patroni/pgbackrest-wrapper --stanza={{ patroni_create_cluster_name }} archive-push %p"
               restore_command: "/usr/local/libexec/patroni/pgbackrest-wrapper --stanza={{ patroni_create_cluster_name }} archive-get %f %p"
           pg_hba:
@@ -110,9 +110,9 @@ postgresql:
         checkpoint: 'fast'
 
 watchdog:
-    mode: required
-    device: /dev/watchdog
-    safety_margin: 5
+    mode: {{ patroni_create_watchdog_mode }}
+    device: {{ patroni_create_watchdog_device }}
+    safety_margin: {{ patroni_create_watchdog_safety_margin }}
 
 tags:
     nofailover: false
