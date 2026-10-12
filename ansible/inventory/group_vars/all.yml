@@ -8,3 +8,4 @@ patroni_create_enable_alloy_ui: true
 patroni_create_management_cidr: "192.168.172.1/32"
 patroni_create_app_cidrs:
   - 192.168.172.150/32
+patroni_create_alloy_remote_write_url: http://192.168.77.50:9090/api/v1/write

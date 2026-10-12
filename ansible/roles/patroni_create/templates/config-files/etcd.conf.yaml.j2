@@ -1,6 +1,13 @@
 name: '{{ inventory_hostname }}'
 data-dir: {{ patroni_create_vars_etcd_data_dir }}
 
+auto-compaction-mode: periodic
+auto-compaction-retention: "{{ patroni_create_etcd_auto_compaction_retention }}"
+quota-backend-bytes: {{ patroni_create_etcd_quota_backend_bytes }}
+snapshot-count: {{ patroni_create_etcd_snapshot_count }}
+heartbeat-interval: {{ patroni_create_etcd_heartbeat_interval }}
+election-timeout: {{ patroni_create_etcd_election_timeout }}
+
 initial-cluster-token: {{ patroni_create_pg_token }}
 initial-cluster-state: new
 initial-cluster: {% for host in groups[patroni_create_inventory_group] %}{{ host }}=https://{{ hostvars[host].ansible_host }}:2380{% if not loop.last %},{% endif %}{% endfor +%}

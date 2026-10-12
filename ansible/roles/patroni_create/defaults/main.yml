@@ -1,9 +1,14 @@
 # SPDX-License-Identifier: MIT-0
 ---
 # defaults file for patroni
+
+# run config settings
+patroni_create_inventory_group: psql
+
+
+# Firewall settings
 patroni_create_app_cidrs: []
 patroni_create_management_cidr: ""
-patroni_create_inventory_group: psql
 patroni_create_firewall_zone: patroni
 patroni_create_firewall_ports:
   - 2379
@@ -11,6 +16,8 @@ patroni_create_firewall_ports:
   - 5432
   - 8008
 
+
+# LUKS volumes settings
 patroni_create_volume_fstype: xfs
 patroni_create_data_volumes:
   - name: pgdata
@@ -24,25 +31,80 @@ patroni_create_data_volumes:
     gib: 5
     owner: etcd
 
+
+# Patroni settings
 patroni_create_pg_token: PostgreSQL_HA_Cluster
 patroni_create_cluster_name: pg_cluster
+patroni_create_patroni_ttl: 30
+patroni_create_patroni_loop_wait: 10
+patroni_create_patroni_retry_timeout: 10
+patroni_create_patroni_primary_start_timeout: 0
+patroni_create_patroni_maximum_lag_on_failover: 1048576
+patroni_create_patroni_check_timeline: true
+patroni_create_patroni_synchronous_mode: quorum
+patroni_create_patroni_synchronous_node_count: 1
+patroni_create_patroni_synchronous_mode_strict: true
+
+
+# Etcd settings
+patroni_create_etcd_auto_compaction_retention: 10h
+patroni_create_etcd_quota_backend_bytes: 2147483648
+patroni_create_etcd_snapshot_count: 100000
+patroni_create_etcd_heartbeat_interval: 100
+patroni_create_etcd_election_timeout: 1000
+
+
+# Postgres settings
+patroni_create_postgres_wal_keep_size: 160MB
+patroni_create_postgres_max_wal_senders: 5
+patroni_create_postgres_max_replication_slots: 10
+patroni_create_postgres_max_wal_size: 10GB
+patroni_create_postgres_archive_timeout: 60s
+
 patroni_create_app_db_name: app
-patroni_create_s3_prefix: /pgbackrest
+
+
+# Watchdog settings
+patroni_create_watchdog_mode: required
+patroni_create_watchdog_device: /dev/watchdog
+patroni_create_watchdog_safety_margin: 5
+
+
+# S3 Storage settings
 patroni_create_s3_bucket_name: patroni-bucket
 patroni_create_s3_endpoint: 192.168.172.140
 patroni_create_s3_port: 9000
 patroni_create_s3_region: eu-central-1
+patroni_create_s3_backup_prefix: /pgbackrest
+patroni_create_s3_dump_prefix: pgdump
 
+
+# PgBackRest and dumps timers settings
 patroni_create_on_boot_full_backup: 3min
 patroni_create_interval_full_backup: 30min
+
 patroni_create_on_boot_incr_backup: 5min
 patroni_create_interval_incr_backup: 2min
+
 patroni_create_on_boot_dump: 7min
 patroni_create_interval_dump: 15min
+
+
+# Dump settings
 patroni_create_dump_retention: 3
 patroni_create_dump_retention_days: 7
-patroni_create_dump_prefix: pgdump
 
+
+# pgbackrest settings
+patroni_create_pgbackrest_retention_full: 2
+patroni_create_pgbackrest_process_max: 2
+patroni_create_pgbackrest_start_fast: true
+patroni_create_pgbackrest_log_level_console: info
+patroni_create_pgbackrest_log_level_file: detail
+patroni_create_pgbackrest_archive_timeout: 60
+
+
+# Openbao settings
 patroni_create_bao_secret_namespace: patroni
 patroni_create_bao_auth_path: patroni-cert
 patroni_create_bao_address: https://192.168.172.160:8200
@@ -57,10 +119,14 @@ patroni_create_bao_pgbackrest_path: "{{ patroni_create_bao_cluster_path }}/share
 patroni_create_bao_pgdump_path: "{{ patroni_create_bao_cluster_path }}/shared/pgdump"
 patroni_create_bao_s3_path: "{{ patroni_create_bao_cluster_path }}/shared/s3"
 
+
+# Pg-tde settings
 patroni_create_pg_tde_provider_name: openbao-patroni
 patroni_create_pg_tde_mount_path: pg-tde
 patroni_create_pg_tde_key_name: pg-cluster-default-key-v1
 
+
+# Alloy settings
 patroni_create_enable_alloy: true
 patroni_create_enable_alloy_ui: false
 patroni_create_alloy_logging_level: info
