@@ -30,7 +30,7 @@ disks, firewalld, managed volume entries, and the related systemd units.
 - mTLS for etcd and the Patroni REST API, plus TLS for PostgreSQL;
 - synchronous quorum replication and a required `softdog` watchdog;
 - `pg_tde` with a global OpenBao provider and a default principal key;
-- pgBackRest physical backups and WAL archiving to S3 or MinIO;
+- pgBackRest physical backups and WAL archiving to NetApp;
 - logical dumps produced by `pg_back` and encrypted with an AGE public key;
 - an example application database, the `app_user` and `dumper` roles, and the
   `public.ha_probe` table;
@@ -83,20 +83,24 @@ PostgreSQL or etcd workload. Each node requires:
 Two external services are also required:
 
 - a working OpenBao server that stores cluster secrets and keys;
-- S3-compatible storage with an existing bucket for physical backups, WAL
+- NetApp storage with an existing bucket for physical backups, WAL
   archives, and logical dumps.
 
-OpenBao and the S3 endpoint must be reachable from all three nodes. If Alloy
+OpenBao and the NetApp endpoint must be reachable from all three nodes. If Alloy
 is enabled, the nodes must also be able to reach the configured Prometheus
 Remote Write endpoint.
 
 > [!IMPORTANT]
-> **The complete deployment uses one shared certificate authority (CA).**
-> Certificates used by OpenBao, etcd, Patroni, PostgreSQL, and the S3 endpoint
-> must chain to this CA. The CA certificate is installed on every node as
+> **The complete deployment uses one shared root CA as its trust anchor.**
+> Certificates used by OpenBao, NetApp, etcd, Patroni, and PostgreSQL may be
+> signed directly by this root CA or by intermediate CAs, but every certificate
+> chain must terminate at the same trusted root. The file `certs/ca/ca.crt`
+> supplied to the role must contain that root CA certificate. During role
+> execution, the same certificate is installed on every node as
 > `/etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt` and added to the
-> system trust store. The CA private key remains outside the cluster nodes and
-> is not used by the role.
+> system trust store. This common trust anchor allows clients on the nodes to
+> validate all service certificates. The CA private key remains outside the
+> cluster nodes and is not used by the role.
 
 ### Ansible controller
 
@@ -123,7 +127,7 @@ The role uses, among others:
 - support for LUKS2 and XFS;
 - the ability to load the `softdog` module;
 - dedicated disks matching `patroni_create_data_volumes`;
-- access to the configured S3 bucket;
+- access to the configured NetApp bucket;
 - HTTPS access to OpenBao.
 
 The topology is designed for exactly three PostgreSQL/etcd nodes. Hostnames
@@ -166,7 +170,7 @@ The following values must exist in OpenBao before the role starts:
 
 - PostgreSQL passwords;
 - LUKS keys;
-- S3 credentials;
+- NetApp credentials;
 - the pgBackRest repository encryption passphrase;
 - the AGE public key used for logical dumps.
 
@@ -180,7 +184,7 @@ The target layout uses a dedicated namespace and two KV v2 secrets engines:
 
 | Secrets engine | Purpose |
 | --- | --- |
-| `patroni-secrets` | LUKS keys, PostgreSQL passwords, the pgBackRest passphrase, the AGE public key, and S3 credentials. |
+| `patroni-secrets` | LUKS keys, PostgreSQL passwords, the pgBackRest passphrase, the AGE public key, and NetApp credentials. |
 | `pg-tde` | Principal keys managed directly by the `pg_tde` extension. Create the engine, but do not create key secrets manually. |
 
 Default configuration:
@@ -205,7 +209,7 @@ Required paths and fields inside `patroni-secrets`:
 | `pg-cluster/nodes/pg3/luks/etcd` | `key_b64` | Base64-encoded LUKS key for the etcd volume on `pg3`. |
 | `pg-cluster/shared/pgbackrest` | `cipher_pass` | Shared pgBackRest repository encryption passphrase. |
 | `pg-cluster/shared/pgdump` | `cipher_pub_key` | AGE public key used to encrypt logical dumps. |
-| `pg-cluster/shared/s3` | `access_key`, `secret_key` | Credentials for S3-compatible storage. |
+| `pg-cluster/shared/s3` | `access_key`, `secret_key` | Credentials for NetApp storage. |
 | `pg-cluster/shared/postgresql/postgres` | `password` | PostgreSQL superuser password. |
 | `pg-cluster/shared/postgresql/replicator` | `password` | Streaming-replication password. |
 | `pg-cluster/shared/postgresql/app` | `password` | Password for the `app_user` application role. |
@@ -242,59 +246,24 @@ Each node should be able to read only its own `nodes/<host>/luks/*` branch,
 the shared `shared/*` secrets, and the required `pg-tde` engine paths. A node
 should not be able to read the LUKS keys of another cluster member.
 
-#### Example OpenBao policy
+#### Expected OpenBao policy
 
-Minimum policy pattern for `pg1`:
+Each node policy is expected to:
 
-```hcl
-path "patroni-secrets/data/pg-cluster/nodes/pg1/luks/*" {
-  capabilities = ["read"]
-}
+- allow read access only to the node's own LUKS secrets;
+- allow read access to the shared PostgreSQL, backup, dump, and storage
+  secrets required by the role;
+- allow the create, read, update, and list operations required by `pg_tde` on
+  its data paths;
+- allow read and list access to the `pg_tde` metadata paths;
+- allow read access to the mount discovery paths required by `pg_tde`;
+- allow the token to check its own capabilities;
+- allow lookup, renewal, and revocation of the token itself;
+- deny access to LUKS secrets belonging to other nodes, unrelated namespaces,
+  and administrative paths.
 
-path "patroni-secrets/data/pg-cluster/shared/*" {
-  capabilities = ["read"]
-}
-
-path "pg-tde/data/*" {
-  capabilities = ["create", "read", "update", "list"]
-}
-
-path "pg-tde/metadata/*" {
-  capabilities = ["read", "list"]
-}
-
-path "sys/mounts/pg-tde" {
-  capabilities = ["read"]
-}
-
-path "sys/mounts/pg-tde/*" {
-  capabilities = ["read"]
-}
-
-path "sys/internal/ui/mounts/pg-tde" {
-  capabilities = ["read"]
-}
-
-path "sys/internal/ui/mounts/pg-tde/*" {
-  capabilities = ["read"]
-}
-
-path "sys/capabilities-self" {
-  capabilities = ["update"]
-}
-
-path "auth/token/lookup-self" {
-  capabilities = ["read"]
-}
-
-path "auth/token/renew-self" {
-  capabilities = ["update"]
-}
-
-path "auth/token/revoke-self" {
-  capabilities = ["update"]
-}
-```
+The certificate authentication role for each node must attach only the policy
+assigned to that node.
 
 ### Data volumes required by preflight
 
@@ -358,6 +327,47 @@ passphrase before OpenBao is available.
 | `patroni_create_firewall_zone` | `patroni` | Managed firewalld zone with a `DROP` target, set as the default zone. |
 | `patroni_create_firewall_ports` | `2379`, `2380`, `5432`, `8008` | TCP ports allowed between nodes: etcd client, etcd peer, PostgreSQL, and Patroni REST API. |
 
+### Patroni high availability
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `patroni_create_patroni_ttl` | `30` | Lifetime in seconds of the leader lock stored in the DCS. |
+| `patroni_create_patroni_loop_wait` | `10` | Delay in seconds between Patroni high-availability control-loop iterations. |
+| `patroni_create_patroni_retry_timeout` | `10` | Timeout in seconds used when retrying DCS and PostgreSQL operations. |
+| `patroni_create_patroni_primary_start_timeout` | `0` | Time in seconds allowed for a failed primary to recover before failover. `0` permits failover without waiting for primary recovery. |
+| `patroni_create_patroni_maximum_lag_on_failover` | `1048576` | Maximum WAL lag in bytes for a replica to remain eligible for automatic promotion. |
+| `patroni_create_patroni_check_timeline` | `true` | Requires a promotion candidate to be on a timeline compatible with the cluster history. |
+| `patroni_create_patroni_synchronous_mode` | `quorum` | Enables Patroni quorum-based synchronous replication. |
+| `patroni_create_patroni_synchronous_node_count` | `1` | Number of synchronous standby acknowledgements required by Patroni. |
+| `patroni_create_patroni_synchronous_mode_strict` | `true` | Prevents writes when Patroni cannot provide the required synchronous standby. |
+
+When changing the timing values, keep
+`loop_wait + 2 * retry_timeout <= ttl`; otherwise Patroni rejects the dynamic
+configuration.
+
+### etcd
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `patroni_create_etcd_auto_compaction_retention` | `10h` | History window retained by periodic automatic compaction. |
+| `patroni_create_etcd_quota_backend_bytes` | `2147483648` | Maximum etcd backend database size in bytes before writes are blocked by the space quota. |
+| `patroni_create_etcd_snapshot_count` | `100000` | Number of applied transactions between etcd Raft snapshots. |
+| `patroni_create_etcd_heartbeat_interval` | `100` | Raft heartbeat interval in milliseconds. |
+| `patroni_create_etcd_election_timeout` | `1000` | Raft election timeout in milliseconds. It must remain greater than the heartbeat interval. |
+
+### PostgreSQL and watchdog
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `patroni_create_postgres_wal_keep_size` | `160MB` | Minimum amount of WAL retained in `pg_wal` for replicas. |
+| `patroni_create_postgres_max_wal_senders` | `5` | Maximum number of concurrent WAL sender processes. |
+| `patroni_create_postgres_max_replication_slots` | `10` | Maximum number of replication slots. |
+| `patroni_create_postgres_max_wal_size` | `10GB` | Soft limit that controls how much WAL may accumulate between checkpoints. |
+| `patroni_create_postgres_archive_timeout` | `60s` | Maximum delay before PostgreSQL forces a WAL segment switch for archiving. |
+| `patroni_create_watchdog_mode` | `required` | Patroni watchdog mode. `required` prevents the node from becoming primary when the watchdog is unavailable. |
+| `patroni_create_watchdog_device` | `/dev/watchdog` | Watchdog device used by Patroni. |
+| `patroni_create_watchdog_safety_margin` | `5` | Safety margin in seconds subtracted from the Patroni leader-lock TTL when setting the watchdog timeout. |
+
 ### Storage and encryption
 
 | Variable | Default | Description |
@@ -408,16 +418,16 @@ The final SQL creates or updates:
 - `pg_tde.enforce_encryption=on`;
 - the `public.ha_probe` table.
 
-### S3, pgBackRest, and dumps
+### NetApp, pgBackRest, and dumps
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `patroni_create_s3_endpoint` | `192.168.172.140` | S3-compatible hostname or address without a scheme. HTTPS is used. |
-| `patroni_create_s3_port` | `9000` | TLS port of the S3 endpoint. |
+| `patroni_create_s3_endpoint` | `192.168.172.140` | NetApp hostname or address without a scheme. HTTPS is used. |
+| `patroni_create_s3_port` | `9000` | TLS port of the NetApp endpoint. |
 | `patroni_create_s3_region` | `eu-central-1` | Region passed to pgBackRest and `pg_back`. |
 | `patroni_create_s3_bucket_name` | `patroni-bucket` | Existing bucket for backups and dumps. The role does not create it. |
-| `patroni_create_s3_prefix` | `/pgbackrest` | pgBackRest repository path inside the bucket. |
-| `patroni_create_dump_prefix` | `pgdump` | Separate object prefix for encrypted logical dumps. |
+| `patroni_create_s3_backup_prefix` | `/pgbackrest` | pgBackRest repository path inside the bucket. |
+| `patroni_create_s3_dump_prefix` | `pgdump` | Separate object prefix for encrypted logical dumps. |
 | `patroni_create_dump_retention` | `3` | Minimum number of newest logical dumps retained by `pg_back`. |
 | `patroni_create_dump_retention_days` | `7` | Age at which dumps become eligible for removal. |
 | `patroni_create_on_boot_full_backup` | `3min` | Delay before the first full backup attempt after timer activation. |
@@ -426,20 +436,30 @@ The final SQL creates or updates:
 | `patroni_create_interval_incr_backup` | `2min` | Interval between incremental backup attempts. |
 | `patroni_create_on_boot_dump` | `7min` | Delay before the first logical dump attempt. |
 | `patroni_create_interval_dump` | `15min` | Interval between logical dump attempts. |
+| `patroni_create_pgbackrest_retention_full` | `2` | Number of full pgBackRest backups retained in the repository. |
+| `patroni_create_pgbackrest_process_max` | `2` | Maximum number of pgBackRest worker processes used by an operation. |
+| `patroni_create_pgbackrest_start_fast` | `true` | Forces a checkpoint so a backup can begin sooner. |
+| `patroni_create_pgbackrest_log_level_console` | `info` | pgBackRest console log level. |
+| `patroni_create_pgbackrest_log_level_file` | `detail` | pgBackRest file log level. |
+| `patroni_create_pgbackrest_archive_timeout` | `60` | Time in seconds pgBackRest waits for the required WAL segment to reach the archive. |
 
-pgBackRest retains two full backups according to the generated configuration.
+pgBackRest retention is controlled by
+`patroni_create_pgbackrest_retention_full`.
 Timers run on every node, while `leader-gate` permits work only on the current
 Patroni leader.
 
-Every pgBackRest invocation retrieves the repository passphrase and S3
+Every pgBackRest invocation retrieves the repository passphrase and NetApp
 credentials through `pgbackrest-wrapper`. Every `pg_back` invocation retrieves
-the AGE public key and S3 credentials through `pgback-wrapper`. Secrets are not
+the AGE public key and NetApp credentials through `pgback-wrapper`. Secrets are not
 stored in `pgbackrest.conf`, `pg_back.conf`, or a local password file.
 
-### OpenBao paths used by backups
+### OpenBao secret paths
 
 | Variable | Default path | Purpose |
 | --- | --- | --- |
+| `patroni_create_bao_postgres_password_path` | `pg-cluster/shared/postgresql/postgres` | Contains the PostgreSQL superuser password. |
+| `patroni_create_bao_replicator_password_path` | `pg-cluster/shared/postgresql/replicator` | Contains the streaming-replication password. |
+| `patroni_create_bao_app_user_password_path` | `pg-cluster/shared/postgresql/app` | Contains the application-role password. |
 | `patroni_create_bao_pgbackrest_path` | `pg-cluster/shared/pgbackrest` | Contains `cipher_pass` for physical backups and WAL archives. |
 | `patroni_create_bao_pgdump_path` | `pg-cluster/shared/pgdump` | Contains `cipher_pub_key` for AGE-encrypted logical dumps. |
 | `patroni_create_bao_s3_path` | `pg-cluster/shared/s3` | Contains `access_key` and `secret_key` for pgBackRest and `pg_back`. |
@@ -554,7 +574,7 @@ files/
 
 | Source | Destination and purpose |
 | --- | --- |
-| `certs/ca/ca.crt` | Installed as `/etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt`; trusted by OpenBao, etcd, Patroni, PostgreSQL, and S3 clients. |
+| `certs/ca/ca.crt` | Shared root CA installed as `/etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt`; used to validate OpenBao, NetApp, etcd, Patroni, and PostgreSQL certificate chains. |
 | `certs/openbao/ob-client-<host>.crt/.key` | Installed under `/etc/openbao-agent/tls`; node identity for OpenBao cert auth. |
 | `certs/etcd/etcd-<host>.crt/.key` | Installed under `/etc/etcd/ssl`; etcd server and client mTLS. |
 | `certs/patroni/patroni-<host>.crt/.key` | Installed under `/etc/patroni/ssl`; Patroni REST API and local leader checks. |
@@ -564,6 +584,11 @@ files/
 
 Certificate requirements:
 
+- all OpenBao, NetApp, etcd, Patroni, and PostgreSQL certificates must be
+  signed directly by the root CA from `certs/ca/ca.crt` or by an intermediate
+  CA whose chain terminates at that same root;
+- servers must provide any required intermediate certificates so that clients
+  can build the complete chain to the root imported into the node trust store;
 - etcd certificates must support server and client use;
 - the Patroni REST certificate must support server and client use;
 - the DCS certificate must support client authentication;
@@ -572,7 +597,7 @@ Certificate requirements:
 - server certificates must contain the inventory hostname and `ansible_host`;
 - the certificate used by local REST checks must contain `127.0.0.1` in SAN;
 - the PostgreSQL certificate should contain `DNS:localhost`;
-- the S3 or MinIO certificate must chain to the CA trusted by the nodes.
+- the NetApp certificate must chain to the root CA imported by the role.
 
 The CA private key is not consumed by the role and must not be copied to target
 hosts.
@@ -647,7 +672,7 @@ Wipe does not:
 
 - restore PostgreSQL from a backup;
 - delete physical backups from the remote pgBackRest repository;
-- delete logical dump objects from S3 or MinIO;
+- delete logical dump objects from NetApp;
 - automatically rotate passwords, certificates, or backup secrets.
 
 > [!CAUTION]
@@ -749,17 +774,18 @@ successfully without taking a backup. An unknown leadership state fails closed.
 ### pgBackRest
 
 - creates physical backups and archives WAL;
-- uses an S3 repository encrypted with AES-256-CBC;
+- uses a NetApp repository encrypted with AES-256-CBC;
 - retrieves `cipher_pass`, `access_key`, and `secret_key` from OpenBao for
   every wrapper invocation;
-- retains two full backups according to the generated configuration.
+- retains the number of full backups configured by
+  `patroni_create_pgbackrest_retention_full`.
 
 ### `pg_back`
 
 - dumps the application database in PostgreSQL custom format;
 - connects through the local socket as `dumper` using peer mapping;
 - encrypts the dump with the AGE public key retrieved from OpenBao;
-- uploads the object to the configured S3 bucket;
+- uploads the object to the configured NetApp bucket;
 - deletes the local file after a successful upload;
 - removes old objects according to `patroni_create_dump_retention` and
   `patroni_create_dump_retention_days`.
@@ -874,7 +900,7 @@ Path: `pg-cluster/shared/postgresql/app`, field `password`.
 Do not rerun the cluster creation role solely to rotate `app_user` on an
 existing production cluster.
 
-### S3 credentials
+### NetApp credentials
 
 Path: `pg-cluster/shared/s3`, fields `access_key` and `secret_key`.
 
@@ -1018,8 +1044,8 @@ after restarting each host.
 - it does not remove remote backups during wipe;
 - it does not automatically restore data;
 - it assumes dedicated etcd instances on the same three nodes;
-- it assumes an existing S3 bucket and valid credentials;
-- it does not create an S3 user or policy;
+- it assumes an existing NetApp bucket and valid credentials;
+- it does not create a NetApp user or policy;
 - the AGE private key is managed outside the cluster nodes;
 - for an existing `pg_tde` provider, it checks the name but does not compare
   stored parameters with the expected configuration;
