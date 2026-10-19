@@ -64,3 +64,81 @@
     fail_msg: >-
       Exactly one PostgreSQL volume owned by postgres and one etcd volume
       owned by etcd must be configured.
+
+- name: Recovery preflight
+  when: patroni_create_recovery_mode | bool
+  block:
+    - name: Check required vars
+      ansible.builtin.assert:
+        that:
+          - (patroni_create_recovery_backup_id | default('', true) | string | trim | length > 0)
+            or (patroni_create_recovery_date | default('', true) | string | trim | length > 0)
+        fail_msg: >-
+          Please set a backup ID or recovery date
+        success_msg: Correct
+
+    - name: Verify recovery date format
+      when: patroni_create_recovery_backup_id | default('', true) | string | trim | length == 0
+      ansible.builtin.assert:
+        that:
+          - >-
+            patroni_create_recovery_date | default('', true) | string | trim
+            is match('^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01]) ([01]\d|2[0-3]):[0-5]\d:[0-5]\d(\+(0\d|1\d|2[0-3]))?$')
+        fail_msg: >-
+          patroni_create_recovery_date must use the format
+          YYYY-MM-DD HH:MM:SS[+HH], for example 2026-10-14 17:14:00+02.
+        success_msg: Recovery date format is valid.
+
+    - name: Check recovery node
+      ansible.builtin.assert:
+        that:
+          - patroni_create_recovery_node | default('', true) | string | trim | length > 0
+          - patroni_create_recovery_node in groups[patroni_create_inventory_group]
+        fail_msg: >-
+          patroni_create_recovery_node must identify one member of
+          {{ patroni_create_inventory_group }}.
+      run_once: true
+
+    - name: Define recovery point
+      ansible.builtin.set_fact:
+        patroni_playbook_recovery_point: >-
+          {{ patroni_create_recovery_backup_id if patroni_create_recovery_backup_id
+            | default('', true)
+            | string
+            | trim
+            | length > 0 else patroni_create_recovery_date
+          }}
+        patroni_playbook_recovery_type: >-
+          {{ "backup" if patroni_create_recovery_backup_id
+            | default('', true)
+            | string
+            | trim
+            | length > 0 else "date"
+          }}
+
+    - name: Verify existence of stanza
+      when: patroni_create_wipe_existing_cluster | bool
+      ansible.builtin.command:
+        argv:
+          - /usr/local/libexec/patroni/pgbackrest-wrapper
+          - --stanza={{ patroni_create_cluster_name }}
+          - info
+      become_user: postgres
+      changed_when: false
+      run_once: true
+      delegate_to: "{{ patroni_create_recovery_node }}"
+
+    - name: Verify existence of backup
+      when:
+        - patroni_playbook_recovery_type == "backup"
+        - patroni_create_wipe_existing_cluster | bool
+      ansible.builtin.command:
+        argv:
+          - /usr/local/libexec/patroni/pgbackrest-wrapper
+          - --stanza={{ patroni_create_cluster_name }}
+          - --set={{ patroni_playbook_recovery_point }}
+          - info
+      become_user: postgres
+      changed_when: false
+      run_once: true
+      delegate_to: "{{ patroni_create_recovery_node }}"

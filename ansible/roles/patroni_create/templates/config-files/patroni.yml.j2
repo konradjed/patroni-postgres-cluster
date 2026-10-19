@@ -106,8 +106,18 @@ postgresql:
         unix_socket_directories: "{{ patroni_create_vars_postgres_socket }}/"
     create_replica_methods:
         - basebackup
+        - pgbackrest
     basebackup:
         checkpoint: 'fast'
+    pgbackrest:
+        command: >-
+            /usr/local/libexec/patroni/pgbackrest-wrapper
+            --stanza={{ patroni_create_cluster_name }}
+            --delta
+            --cmd=/usr/local/libexec/patroni/pgbackrest-wrapper
+            restore
+        keep_data: true
+        no_params: true
 
 watchdog:
     mode: {{ patroni_create_watchdog_mode }}

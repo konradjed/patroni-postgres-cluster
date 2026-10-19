@@ -4,10 +4,11 @@ The `patroni_create` role provisions a PostgreSQL 18 high-availability cluster
 on the hosts in the configured inventory group. It is called by
 `ansible/playbooks/create_cluster.yml`.
 
-This role is intended for bootstrapping a cluster on new machines and for
-destructively recreating a cluster during a planned maintenance window.
-Configuration changes on a running cluster should be handled by a separate
-role or a dedicated operating procedure.
+This role is intended for bootstrapping a cluster on new machines,
+destructively recreating a cluster during a planned maintenance window, and
+restoring a cluster from an existing pgBackRest backup. It can also reapply
+supported configuration to an existing cluster. Reapplying the role is
+disruptive and does not update every initialization-only setting.
 
 > [!CAUTION]
 > 🔴 **Cluster recreation is a deliberate and irreversible operational
@@ -21,7 +22,7 @@ disks, firewalld, managed volume entries, and the related systemd units.
 ## Table of contents
 
 - [What the role configures](#what-the-role-configures)
-- [Execution flow](#execution-flow)
+- [Standard role execution flow](#standard-role-execution-flow)
 - [Requirements](#requirements)
   - [Deployment infrastructure](#deployment-infrastructure)
   - [Ansible controller](#ansible-controller)
@@ -43,11 +44,21 @@ disks, firewalld, managed volume entries, and the related systemd units.
   - [OpenBao secret paths](#openbao-secret-paths)
   - [OpenBao and `pg_tde`](#openbao-and-pg_tde)
   - [Grafana Alloy](#grafana-alloy)
+  - [Recovery](#recovery)
   - [Internal path variables](#internal-path-variables)
 - [Required role files](#required-role-files)
 - [Running the playbook](#running-the-playbook)
   - [Create a new cluster](#create-a-new-cluster)
+  - [Reconfigure an existing cluster using the role](#reconfigure-an-existing-cluster-using-the-role)
   - [Recreate an existing cluster](#recreate-an-existing-cluster)
+  - [Recover a cluster from an existing backup](#recover-a-cluster-from-an-existing-backup)
+- [Configuration behavior on an existing cluster](#configuration-behavior-on-an-existing-cluster)
+  - [OpenBao Agent](#openbao-agent)
+  - [etcd configuration](#etcd-configuration)
+  - [Patroni and PostgreSQL configuration](#patroni-and-postgresql-configuration)
+  - [`pg_tde` configuration during a rerun](#pg_tde-configuration-during-a-rerun)
+  - [pgBackRest configuration](#pgbackrest-configuration)
+  - [`pg_back` and backup timers](#pg_back-and-backup-timers)
 - [Firewall behavior](#firewall-behavior)
 - [Systemd dependencies and service startup](#systemd-dependencies-and-service-startup)
 - [`pg_tde` configuration](#pg_tde-configuration)
@@ -77,27 +88,32 @@ disks, firewalld, managed volume entries, and the related systemd units.
 
 ## What the role configures
 
-- Percona Distribution for PostgreSQL 18, Patroni, etcd, and pgBackRest;
-- an OpenBao Agent authenticated with a client certificate;
-- dedicated LUKS2/XFS volumes for PostgreSQL and etcd;
-- automatic volume unlocking with keys retrieved from OpenBao;
+- Percona Distribution for PostgreSQL 18, Patroni, etcd, and pgBackRest
+- an OpenBao Agent authenticated with a client certificate
+- dedicated LUKS2/XFS volumes for PostgreSQL and etcd
+- automatic volume unlocking with keys retrieved from OpenBao
 - persistent mounts with validation of the expected mapper before services
-  start;
-- a firewalld zone with a default `DROP` policy and explicit allow rules;
-- mTLS for etcd and the Patroni REST API, plus TLS for PostgreSQL;
-- synchronous quorum replication and a required `softdog` watchdog;
-- `pg_tde` with a global OpenBao provider and a default principal key;
-- pgBackRest physical backups and WAL archiving to NetApp;
-- logical dumps produced by `pg_back` and encrypted with an AGE public key;
-- an example application database, the `app_user` and `dumper` roles, and the
-  `public.ha_probe` table;
-- post-deployment etcd and Patroni health checks;
+  start
+- a firewalld zone with a default `DROP` policy and explicit allow rules
+- mTLS for etcd and the Patroni REST API, plus TLS for PostgreSQL
+- synchronous quorum replication and a required `softdog` watchdog
+- `pg_tde` with a global OpenBao provider and a default principal key
+- pgBackRest physical backups and WAL archiving to NetApp
+- logical dumps produced by `pg_back` and encrypted with an AGE public key
+- during normal deployment, an example application database, the `app_user`
+  and `dumper` roles, and the `public.ha_probe` table
+- post-deployment etcd and Patroni health checks
 - an optional Grafana Alloy agent that sends metrics through Prometheus Remote
-  Write.
+  Write
 
-## Execution flow
+## Standard role execution flow
+
+The list follows the role's normal task order. Steps specific to wipe or
+recovery mode are marked explicitly.
 
 1. Validate the supported operating system and every data-volume definition.
+   In recovery mode, check the selected backup ID or the date format and the
+   recovery node before changing hosts.
 2. When wipe is explicitly enabled, stop backup timers and jobs, validate
    mounts, and remove the DCS entry and local PostgreSQL, WAL, and etcd data.
 3. Install repositories and packages and prepare system services.
@@ -110,13 +126,17 @@ disks, firewalld, managed volume entries, and the related systemd units.
 8. Remove managed volumes from `/etc/crypttab` and install the OpenBao-backed
    unlock service.
 9. Configure firewalld, etcd, Patroni, PostgreSQL, and backups.
-10. Start the cluster and wait for a leader, streaming replicas, and a
-    synchronous or quorum standby.
-11. Configure and verify `pg_tde` on the current leader.
-12. Enable backup timers only after the `pg_tde` configuration succeeds.
-13. Optionally install and configure Grafana Alloy.
-14. In the playbook post-tasks, create or update the example application
-    database on the leader.
+10. In a normal deployment, start Patroni and check the stanza. In recovery
+    mode, restore the backup on one node, complete PostgreSQL recovery, start
+    Patroni, and join the replicas. Ask the operator whether to reinitialize
+    the replicas.
+11. Wait for a leader, streaming replicas, and a synchronous or quorum standby.
+12. Configure or verify `pg_tde` on the current leader. In recovery mode, take
+    a new full backup.
+13. Enable backup timers only after the `pg_tde` checks succeed, then optionally
+    configure Grafana Alloy.
+14. Only during normal deployment, the playbook post-tasks create or update
+    the example application database on the leader.
 
 ## Requirements
 
@@ -125,21 +145,21 @@ disks, firewalld, managed volume entries, and the related systemd units.
 The deployment requires exactly three virtual machines or equivalent hosts
 running Rocky Linux 9. Each machine is a member of all three cluster layers:
 
-- PostgreSQL;
-- Patroni;
+- PostgreSQL
+- Patroni
 - etcd.
 
 The nodes should be dedicated to this cluster and must not host another
 PostgreSQL or etcd workload. Each node requires:
 
-- a separate dedicated disk for PostgreSQL data;
-- a separate dedicated disk for etcd data;
-- network connectivity to the other cluster members;
+- a separate dedicated disk for PostgreSQL data
+- a separate dedicated disk for etcd data
+- network connectivity to the other cluster members
 - hostnames and addresses that match the supplied certificates.
 
 Two external services are also required:
 
-- a working OpenBao server that stores cluster secrets and keys;
+- a working OpenBao server that stores cluster secrets and keys
 - NetApp storage with an existing bucket for physical backups, WAL
   archives, and logical dumps.
 
@@ -161,9 +181,9 @@ Remote Write endpoint.
 
 ### Ansible controller
 
-- Ansible 2.20.1 or newer, as declared in the role metadata;
-- collections listed in `ansible/collections/requirements.yml`;
-- SSH access and privilege escalation on every target host;
+- Ansible 2.20.1 or newer, as declared in the role metadata
+- collections listed in `ansible/collections/requirements.yml`
+- SSH access and privilege escalation on every target host
 - all required certificates and keys staged before execution.
 
 Install the collections from the `ansible` directory:
@@ -174,17 +194,17 @@ ansible-galaxy collection install -r collections/requirements.yml
 
 The role uses, among others:
 
-- `ansible.posix`;
+- `ansible.posix`
 - `community.general`.
 
 ### Target hosts
 
-- Rocky Linux 9 with systemd;
-- access to the configured package repositories;
-- support for LUKS2 and XFS;
-- the ability to load the `softdog` module;
-- dedicated disks matching `patroni_create_data_volumes`;
-- access to the configured NetApp bucket;
+- Rocky Linux 9 with systemd
+- access to the configured package repositories
+- support for LUKS2 and XFS
+- the ability to load the `softdog` module
+- dedicated disks matching `patroni_create_data_volumes`
+- access to the configured NetApp bucket
 - HTTPS access to OpenBao.
 
 The topology is designed for exactly three PostgreSQL/etcd nodes. Hostnames
@@ -207,10 +227,10 @@ servers:
 
 Every member of `patroni_create_inventory_group` is used when generating:
 
-- the initial etcd cluster;
-- PostgreSQL replication rules;
-- firewalld rules;
-- the Patroni DCS endpoint list;
+- the initial etcd cluster
+- PostgreSQL replication rules
+- firewalld rules
+- the Patroni DCS endpoint list
 - LUKS key paths and certificate names.
 
 ## Critical inputs before running the playbook
@@ -225,10 +245,10 @@ Every member of `patroni_create_inventory_group` is used when generating:
 
 The following values must exist in OpenBao before the role starts:
 
-- PostgreSQL passwords;
-- LUKS keys;
-- NetApp credentials;
-- the pgBackRest repository encryption passphrase;
+- PostgreSQL passwords
+- LUKS keys
+- NetApp credentials
+- the pgBackRest repository encryption passphrase
 - the AGE public key used for logical dumps.
 
 The OpenBao Agent authenticates each node, writes a renewable token to
@@ -307,15 +327,15 @@ should not be able to read the LUKS keys of another cluster member.
 
 Each node policy is expected to:
 
-- allow read access only to the node's own LUKS secrets;
+- allow read access only to the node's own LUKS secrets
 - allow read access to the shared PostgreSQL, backup, dump, and storage
-  secrets required by the role;
+  secrets required by the role
 - allow the create, read, update, and list operations required by `pg_tde` on
-  its data paths;
-- allow read and list access to the `pg_tde` metadata paths;
-- allow read access to the mount discovery paths required by `pg_tde`;
-- allow the token to check its own capabilities;
-- allow lookup, renewal, and revocation of the token itself;
+  its data paths
+- allow read and list access to the `pg_tde` metadata paths
+- allow read access to the mount discovery paths required by `pg_tde`
+- allow the token to check its own capabilities
+- allow lookup, renewal, and revocation of the token itself
 - deny access to LUKS secrets belonging to other nodes, unrelated namespaces,
   and administrative paths.
 
@@ -358,7 +378,7 @@ patroni_create_data_volumes:
 ### LUKS key material
 
 LUKS keys are read from the node-specific paths documented above. The role
-decodes `key_b64` directly into `cryptsetup`; it does not create a local key
+decodes `key_b64` directly into `cryptsetup`. It does not create a local key
 file.
 
 At boot, `patroni-unlock-volumes.service` waits for the OpenBao Agent token,
@@ -399,7 +419,7 @@ passphrase before OpenBao is available.
 | `patroni_create_patroni_synchronous_mode_strict` | `true` | Prevents writes when Patroni cannot provide the required synchronous standby. |
 
 When changing the timing values, keep
-`loop_wait + 2 * retry_timeout <= ttl`; otherwise Patroni rejects the dynamic
+`loop_wait + 2 * retry_timeout <= ttl`. Otherwise Patroni rejects the dynamic
 configuration.
 
 ### etcd
@@ -467,12 +487,12 @@ not migrate a container created with another key source.
 
 The final SQL creates or updates:
 
-- `app_user` with a password from `pg-cluster/shared/postgresql/app`;
-- the local peer-authenticated `dumper` role;
-- the application database;
-- the `pg_tde` extension in the application database;
-- `default_table_access_method=tde_heap`;
-- `pg_tde.enforce_encryption=on`;
+- `app_user` with a password from `pg-cluster/shared/postgresql/app`
+- the local peer-authenticated `dumper` role
+- the application database
+- the `pg_tde` extension in the application database
+- `default_table_access_method=tde_heap`
+- `pg_tde.enforce_encryption=on`
 - the `public.ha_probe` table.
 
 ### NetApp, pgBackRest, and dumps
@@ -551,6 +571,23 @@ Alloy collects Unix system metrics, metrics about its own process, and the
 state of selected systemd services. Remote Write is outbound traffic and does
 not require an inbound port on a node. Port 12345 is allowed from
 `patroni_create_management_cidr` only when the UI is enabled.
+
+### Recovery
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `patroni_create_recovery_mode` | `false` | Restores an existing pgBackRest backup instead of starting a new PostgreSQL cluster. |
+| `patroni_create_recovery_backup_id` | empty | Selected `full` or `incr` backup ID. Takes precedence over the recovery date. |
+| `patroni_create_recovery_date` | empty | Recovery target time in `YYYY-MM-DD HH:MM:SS[+HH]` format. The role validates its format, not WAL coverage. |
+| `patroni_create_recovery_node` | `pg1` | Inventory host restored first and promoted to leader. |
+| `patroni_create_recovery_db_checks` | `[]` | Optional list of databases to check for a connection, `tde_heap`, and enforced encryption. An empty list skips these checks. |
+| `patroni_create_recovery_pg_tde_default_key` | empty | Expected default key name after recovery. When empty, `patroni_create_pg_tde_key_name` is used. |
+| `patroni_create_recovery_pg_start_timeout` | `600` | Maximum time in seconds for `pg_ctl` to wait until PostgreSQL accepts connections during recovery. |
+| `patroni_create_recovery_promotion_timeout` | `3600` | Approximate wait budget in seconds for recovery to finish and the node to be promoted. The role checks every five seconds, with additional time spent executing each check. |
+
+Select exactly one recovery target. An incremental backup also requires its
+base full backup and the relevant WAL in the existing stanza. Review the
+target manually before running the playbook.
 
 ### Internal path variables
 
@@ -631,29 +668,29 @@ files/
 
 | Source | Destination and purpose |
 | --- | --- |
-| `certs/ca/ca.crt` | Shared root CA installed as `/etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt`; used to validate OpenBao, NetApp, etcd, Patroni, and PostgreSQL certificate chains. |
-| `certs/openbao/ob-client-<host>.crt/.key` | Installed under `/etc/openbao-agent/tls`; node identity for OpenBao cert auth. |
-| `certs/etcd/etcd-<host>.crt/.key` | Installed under `/etc/etcd/ssl`; etcd server and client mTLS. |
-| `certs/patroni/patroni-<host>.crt/.key` | Installed under `/etc/patroni/ssl`; Patroni REST API and local leader checks. |
-| `certs/dcs-client/dcsclient-<host>.crt/.key` | Installed under `/etc/patroni/dcs-client`; Patroni's client identity for etcd. |
-| `certs/postgres/pgsrv-<host>.crt/.key` | Installed as `pgsrv.crt` and `pgsrv.key` under `/var/lib/pgsql/18/ssl`; PostgreSQL TLS. |
-| `patroni-require-volume` | Installed as `/usr/local/sbin/patroni-require-volume`; validates the mountpoint and mapper before etcd and Patroni start. |
+| `certs/ca/ca.crt` | Shared root CA installed as `/etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt`. Used to validate OpenBao, NetApp, etcd, Patroni, and PostgreSQL certificate chains. |
+| `certs/openbao/ob-client-<host>.crt/.key` | Installed under `/etc/openbao-agent/tls`. Node identity for OpenBao cert auth. |
+| `certs/etcd/etcd-<host>.crt/.key` | Installed under `/etc/etcd/ssl`. Etcd server and client mTLS. |
+| `certs/patroni/patroni-<host>.crt/.key` | Installed under `/etc/patroni/ssl` for the Patroni REST API and local leader checks. |
+| `certs/dcs-client/dcsclient-<host>.crt/.key` | Installed under `/etc/patroni/dcs-client` as Patroni's client identity for etcd. |
+| `certs/postgres/pgsrv-<host>.crt/.key` | Installed as `pgsrv.crt` and `pgsrv.key` under `/var/lib/pgsql/18/ssl` for PostgreSQL TLS. |
+| `patroni-require-volume` | Installed as `/usr/local/sbin/patroni-require-volume`. Validates the mountpoint and mapper before etcd and Patroni start. |
 
 Certificate requirements:
 
 - all OpenBao, NetApp, etcd, Patroni, and PostgreSQL certificates must be
   signed directly by the root CA from `certs/ca/ca.crt` or by an intermediate
-  CA whose chain terminates at that same root;
+  CA whose chain terminates at that same root
 - servers must provide any required intermediate certificates so that clients
-  can build the complete chain to the root imported into the node trust store;
-- etcd certificates must support server and client use;
-- the Patroni REST certificate must support server and client use;
-- the DCS certificate must support client authentication;
-- the PostgreSQL certificate must support server authentication;
-- the OpenBao Agent certificate must meet the cert auth role requirements;
-- server certificates must contain the inventory hostname and `ansible_host`;
-- the certificate used by local REST checks must contain `127.0.0.1` in SAN;
-- the PostgreSQL certificate should contain `DNS:localhost`;
+  can build the complete chain to the root imported into the node trust store
+- etcd certificates must support server and client use
+- the Patroni REST certificate must support server and client use
+- the DCS certificate must support client authentication
+- the PostgreSQL certificate must support server authentication
+- the OpenBao Agent certificate must meet the cert auth role requirements
+- server certificates must contain the inventory hostname and `ansible_host`
+- the certificate used by local REST checks must contain `127.0.0.1` in SAN
+- the PostgreSQL certificate should contain `DNS:localhost`
 - the NetApp certificate must chain to the root CA imported by the role.
 
 The CA private key is not consumed by the role and must not be copied to target
@@ -672,15 +709,15 @@ ansible-playbook -i inventory/servers.yml playbooks/create_cluster.yml --ask-vau
 With the default `patroni_create_wipe_existing_cluster: false`, the wipe block
 is skipped. The role then:
 
-1. validates the system, volumes, and required secrets;
-2. installs packages and disables conflicting package-provided services;
-3. configures the OpenBao Agent and validates its token;
+1. validates the system, volumes, and required secrets
+2. installs packages and disables conflicting package-provided services
+3. configures the OpenBao Agent and validates its token
 4. validates devices, creates new LUKS2 containers or opens existing ones, and
-   mounts filesystems;
-5. installs the unlock service;
-6. configures the firewall, etcd, Patroni, PostgreSQL, and backups;
-7. starts the cluster and validates the leader and replicas;
-8. configures `pg_tde`, starts timers, and optionally configures Alloy;
+   mounts filesystems
+5. installs the unlock service
+6. configures the firewall, etcd, Patroni, PostgreSQL, and backups
+7. starts the cluster and validates the leader and replicas
+8. configures `pg_tde`, starts timers, and optionally configures Alloy
 9. creates the application database on the leader.
 
 > [!CAUTION]
@@ -690,6 +727,39 @@ is skipped. The role then:
 > `luksFormat`, and filesystem creation. Existing LUKS is opened with the key
 > from OpenBao and mounted without recreation. New deployments require
 > dedicated disks whose contents may be destroyed.
+
+### Reconfigure an existing cluster using the role
+
+The role can reapply supported configuration to an existing cluster without
+deleting PostgreSQL or etcd data:
+
+```bash
+ansible-playbook -i inventory/servers.yml playbooks/create_cluster.yml \
+  --ask-vault-pass \
+  -e patroni_create_wipe_existing_cluster=false \
+  -e patroni_create_recovery_mode=false
+```
+
+> [!WARNING]
+> This is a disruptive configuration method. The current role stops etcd,
+> Patroni/PostgreSQL, and the OpenBao Agent on all selected nodes before it
+> reapplies their configuration. The database is temporarily unavailable and
+> the application must be stopped or drained before the run.
+
+The rerun preserves existing PostgreSQL, WAL, etcd, and LUKS data. It reapplies
+local configuration files, certificates, service definitions, backup
+configuration, `pg_tde` checks, and application database post-tasks. Run it
+against the complete cluster inventory without `--limit`.
+
+Some values are used only when PostgreSQL, Patroni DCS, or etcd is initialized.
+A normal rerun writes those values to configuration files but does not replace
+the active state stored in the existing cluster. See
+[Configuration behavior on an existing cluster](#configuration-behavior-on-an-existing-cluster)
+for the service-specific split. Initialization-only options are applied when a
+new cluster is created or when the role is deliberately run with
+`patroni_create_wipe_existing_cluster=true`. Enabling wipe destroys local
+PostgreSQL and etcd data and must not be used as a routine configuration
+method.
 
 ### Recreate an existing cluster
 
@@ -704,7 +774,8 @@ is skipped. The role then:
 ```bash
 ansible-playbook -i inventory/servers.yml playbooks/create_cluster.yml \
   --ask-vault-pass \
-  -e patroni_create_wipe_existing_cluster=true
+  -e patroni_create_wipe_existing_cluster=true \
+  -e patroni_create_recovery_mode=false
 ```
 
 Do not combine cluster recreation with `--limit` selecting only a subset of
@@ -712,24 +783,24 @@ Patroni/etcd members.
 
 With wipe enabled, the playbook:
 
-1. stops and disables full, incremental, and logical backup timers;
-2. stops active backup jobs;
-3. installs the volume verification helper;
+1. stops and disables full, incremental, and logical backup timers
+2. stops active backup jobs
+3. installs the volume verification helper
 4. verifies that every data path is a mountpoint backed by its expected
-   `/dev/mapper/patroni-<name>`; an invalid state stops the wipe;
-5. attempts to read the current cluster state and leader;
-6. stops Patroni on every selected host;
-7. attempts to remove the Patroni scope from DCS through `patronictl remove`;
-8. removes the PostgreSQL data directory and local WAL archive;
-9. stops etcd, unmounts its volume, and removes etcd data;
+   `/dev/mapper/patroni-<name>`. An invalid state stops the wipe
+5. attempts to read the current cluster state and leader
+6. stops Patroni on every selected host
+7. attempts to remove the Patroni scope from DCS through `patronictl remove`
+8. removes the PostgreSQL data directory and local WAL archive
+9. stops etcd, unmounts its volume, and removes etcd data
 10. continues through normal provisioning, recreating LUKS containers, UUIDs,
     filesystems, and the cluster.
 
-Wipe does not:
+Wipe by itself does not:
 
-- restore PostgreSQL from a backup;
-- delete physical backups from the remote pgBackRest repository;
-- delete logical dump objects from NetApp;
+- restore PostgreSQL from a backup
+- delete physical backups from the remote pgBackRest repository
+- delete logical dump objects from NetApp
 - automatically rotate passwords, certificates, or backup secrets.
 
 > [!CAUTION]
@@ -753,13 +824,261 @@ Wipe does not:
 > delete it manually. Preserve the historical `pgbackrest/cipher_pass` value
 > and the AGE private keys required to decrypt retained dumps.
 
+### Recover a cluster from an existing backup
+
+Choose the combination that matches the target hosts:
+
+| `patroni_create_wipe_existing_cluster` | `patroni_create_recovery_mode` | Result |
+| --- | --- | --- |
+| `true` | `true` | Remove local data from existing, damaged cluster hosts, then restore an existing pgBackRest backup. |
+| `false` | `true` | Restore an existing pgBackRest backup on new hosts with empty PostgreSQL and etcd data. |
+| `true` | `false` | Remove local data and create a fresh cluster, without restoring a backup. |
+
+For recovery on existing hosts:
+
+```bash
+ansible-playbook -i inventory/servers.yml playbooks/create_cluster.yml \
+  --ask-vault-pass \
+  -e patroni_create_wipe_existing_cluster=true \
+  -e patroni_create_recovery_mode=true \
+  -e patroni_create_recovery_backup_id=BACKUP_ID
+```
+
+For recovery on new hosts:
+
+```bash
+ansible-playbook -i inventory/servers.yml playbooks/create_cluster.yml \
+  --ask-vault-pass \
+  -e patroni_create_wipe_existing_cluster=false \
+  -e patroni_create_recovery_mode=true \
+  -e patroni_create_recovery_backup_id=BACKUP_ID
+```
+
+**Recovery causes downtime and discards writes made after the selected
+recovery point.** Before making the database available, the operator must
+confirm the recovered data and cluster state.
+
+#### Operator preparation
+
+1. Choose the recovery point. Replace `BACKUP_ID` with a `full` or `incr`
+   backup ID. For an incremental backup, also confirm that its base full
+   backup and required WAL are available. For point-in-time recovery, use
+   `-e 'patroni_create_recovery_date=YYYY-MM-DD HH:MM:SS+HH'` instead of the
+   ID and confirm that the backup and WAL archive cover the target time. If
+   both ID and date are set, the ID takes precedence.
+2. Check the chosen backup and stanza independently. The role validates the
+   date format or calls `pgBackRest info` for an ID, but it does not prove WAL
+   coverage for a date or completeness of the backup chain. The operator
+   must choose and validate the recovery point.
+3. Prepare the complete PostgreSQL cluster host group, connectivity,
+   privileges, certificates, disks, and package repository access. Hosts
+   must reach the existing stanza and the same NetApp objects, with the
+   correct endpoint, bucket, prefix, and stanza name. Matching repository
+   credentials and encryption passphrase, the shared CA, and historical
+   `pg_tde` keys used by the recovered data must be available. The role does
+   not create a new stanza in recovery mode.
+4. Stop application writes. For recovery on new hosts, remove the old cluster
+   from application traffic and stop its Patroni and backup jobs, so it cannot
+   accept writes or use the same stanza in parallel. Use
+   `wipe=true` for existing hosts with a damaged cluster. Before running,
+   confirm that the selected volumes are the intended mounted volumes and
+   that their local state may be destroyed. Use `wipe=false` only for new
+   hosts without existing PostgreSQL and etcd data. `wipe=false` alone does
+   not protect the contents of a new disk without LUKS from role provisioning.
+5. Select `patroni_create_recovery_node`, the first restored node and future
+   leader. Its default is `pg1`. If the default `pg_tde` key was rotated, set
+   `patroni_create_recovery_pg_tde_default_key` to the key name used by the
+   recovered backup. An empty value uses `patroni_create_pg_tde_key_name`.
+   Optionally set `patroni_create_recovery_db_checks` to a list of database
+   names. By default, the list is empty and these checks are skipped. For
+   each database, the role checks the connection,
+   `default_table_access_method=tde_heap`, and
+   `pg_tde.enforce_encryption=on`, but not table contents.
+
+Run the playbook for the complete PostgreSQL cluster host group without
+`--limit`.
+
+#### During and after the run
+
+The role restores the selected backup on one node. It starts PostgreSQL with
+`pg_ctl`, waits for recovery and promotion, verifies the default `pg_tde` key,
+optionally checks each selected database, stops PostgreSQL, and starts that
+node under Patroni. It then starts the replicas one at a time. The operator
+does not need to perform this step manually.
+
+The startup and promotion waits have separate limits. By default, `pg_ctl`
+waits up to 600 seconds for PostgreSQL to accept connections, then the role
+allows approximately 3600 seconds for `pg_is_in_recovery()` to return `false`.
+Accepting connections does not by itself confirm that recovery has finished.
+Adjust `patroni_create_recovery_pg_start_timeout` and
+`patroni_create_recovery_promotion_timeout` before a recovery that may need
+more time. If either wait fails, the cleanup block attempts to stop the manually started PostgreSQL instance and the recovery
+run fails.
+
+**The playbook pauses for a replica `reinit` decision and waits for input.**
+At that point, inspect their state with `patronictl list`. Enter `REINIT` only
+if they need rebuilding: this forces `reinit` on every replica. Enter or any
+other response skips rebuilding. The role then checks for one leader, every
+replica in `streaming`, and a synchronous or quorum standby. This does not
+replace checking the recovered data.
+
+After checking `pg_tde`, the role takes a new full pgBackRest backup, enables
+the timers, and skips the example database creation tasks. After completion,
+the operator checks the expected databases and data, replica state, and WAL
+archiving. Restore application traffic only after these checks. If recovery
+fails, recheck the initial conditions and identify the cause of the error.
+
+## Configuration behavior on an existing cluster
+
+This section describes what a normal role rerun changes when both
+`patroni_create_wipe_existing_cluster` and `patroni_create_recovery_mode` are
+`false`.
+
+### OpenBao Agent
+
+The role stops and restarts the Agent. It reapplies:
+
+- the OpenBao address, authentication path, namespace, and token sink path
+- the client certificate, private key, and trusted CA
+- the Agent systemd unit and the `bao-read` helper
+- the token wait timeout and access checks for required secrets.
+
+The rerun does not create or modify server-side OpenBao policies,
+authentication roles, KV mounts, or secret values. It only verifies that the
+configured secrets are accessible.
+
+### etcd configuration
+
+The role stops etcd on all selected nodes and starts it again after writing the
+configuration. The restart applies:
+
+- automatic compaction retention
+- backend quota and snapshot count
+- heartbeat and election timeouts
+- TLS certificates and transport settings
+- listen addresses and the systemd override.
+
+The following values initialize a new etcd data directory and do not rebuild
+membership in an existing cluster:
+
+- `initial-cluster-token`
+- `initial-cluster-state`
+- `initial-cluster`
+- member `name` and `initial-advertise-peer-urls`.
+
+Adding, removing, renaming, or changing the peer URL of an existing member
+requires the corresponding `etcdctl member` procedure. These initialization
+values take effect from the role when wipe removes the existing etcd data and
+the cluster is created again.
+
+### Patroni and PostgreSQL configuration
+
+The role stops Patroni/PostgreSQL on all selected nodes and starts it again.
+The restart applies local configuration such as:
+
+- Patroni REST API and `patronictl` TLS settings
+- local etcd endpoints and DCS client certificates
+- PostgreSQL `data_dir`, binary paths, socket directory, and replica methods
+- local node addresses, watchdog settings, tags, certificates, wrappers, and
+  systemd units.
+
+Changing cluster identity, scope, member names, data paths, or node addresses
+is not an in-place migration. Although the local file is rewritten, such a
+change can disconnect a node from the existing cluster and requires a separate
+operating procedure.
+
+Values under `bootstrap.dcs` seed Patroni's dynamic configuration only when a
+cluster is initialized. A normal rerun does not update the active DCS values,
+including:
+
+- `ttl`, `loop_wait`, `retry_timeout`, and `primary_start_timeout`
+- synchronous mode, synchronous node count, strict mode, timeline checking,
+  and maximum failover lag
+- PostgreSQL parameters such as `wal_keep_size`, `max_wal_senders`,
+  `max_replication_slots`, `max_wal_size`, `archive_timeout`, WAL settings,
+  and `pg_tde` server parameters
+- `pg_hba` and `pg_ident` stored in Patroni dynamic configuration.
+
+Inspect and change those settings on an existing cluster with:
+
+```bash
+sudo -u postgres patronictl -c /etc/patroni/patroni.yml show-config
+sudo -u postgres patronictl -c /etc/patroni/patroni.yml edit-config
+```
+
+The `initdb` encoding and data-checksum options also do not modify an existing
+PostgreSQL data directory. They apply only when a new database cluster is
+initialized, including deliberate recreation with wipe enabled.
+
+The playbook post-tasks run on the current leader. They ensure the application
+roles, database, grants, `pg_tde` extension, and probe table exist, synchronize
+the `app_user` password with OpenBao, and set `tde_heap` with encryption
+enforcement for the application database. They do not delete application data
+or convert existing `heap` tables to `tde_heap`.
+
+Updating the OpenBao values for the `postgres` or `replicator` password does
+not change the password stored inside PostgreSQL. Use the documented password
+rotation procedure before restarting Patroni with new secret values.
+
+### `pg_tde` configuration during a rerun
+
+On the leader, the role creates missing `pg_tde` extensions, registers the
+configured global provider if it is absent, finds or creates the expected
+default key when no key is configured, and verifies access to the default key.
+
+For an existing provider, the role checks its name but does not update its
+stored address, mount path, namespace, token path, or CA. Changing the expected
+key name does not rotate the key. The role stops if a different default key is
+already active. Existing `heap` tables are not converted automatically.
+
+Creating a fresh cluster with wipe and without recovery configures a new
+provider and key for the new database cluster. It does not make old encrypted
+backups readable with a new key. Keys required by retained backups must remain
+available.
+
+### pgBackRest configuration
+
+The role rewrites the pgBackRest configuration and wrappers. New pgBackRest
+commands immediately use the configured endpoint, bucket, prefix, region,
+retention, process limits, timeouts, and logging levels. Credentials and the
+repository passphrase are fetched from OpenBao on every invocation. The leader
+runs `stanza-create` and `check`.
+
+Changing a bucket, prefix, stanza name, endpoint, or repository passphrase does
+not migrate or re-encrypt existing backups. It may instead select another
+repository or make retained backups unreadable. Use a repository migration or
+passphrase rotation procedure for those changes. Wipe does not delete or
+migrate the remote repository.
+
+### `pg_back` and backup timers
+
+The role rewrites the logical-dump configuration, OpenBao wrapper, runner,
+systemd service, and timer. New dumps use the configured application database,
+retention, NetApp endpoint, bucket, prefix, region, credentials, and AGE
+public key.
+
+Changing the AGE public key affects only new dumps. Existing dump objects are
+not re-encrypted and still require their matching historical private key.
+
+Full, incremental, and logical-dump timer definitions are rewritten,
+`systemctl daemon-reload` runs, and the timers are enabled and started. An
+already active timer is not explicitly restarted. After changing a schedule,
+restart the timers so the next activation is recalculated:
+
+```bash
+sudo systemctl restart \
+  patroni-full-backup.timer \
+  patroni-incre-backup.timer \
+  patroni-pgdump.timer
+```
+
 ## Firewall behavior
 
 The role creates the configured zone, applies a `DROP` target, and allows:
 
-- SSH from `patroni_create_management_cidr`;
-- cluster ports between all nodes;
-- PostgreSQL from `patroni_create_app_cidrs`;
+- SSH from `patroni_create_management_cidr`
+- cluster ports between all nodes
+- PostgreSQL from `patroni_create_app_cidrs`
 - optionally, the Alloy UI on TCP 12345 from
   `patroni_create_management_cidr`.
 
@@ -797,14 +1116,14 @@ restart.
 Patroni loads `pg_tde` through `shared_preload_libraries`. The role performs
 configuration only on the current leader:
 
-1. checks the extension in the `postgres` and `template1` databases;
-2. creates missing extensions;
-3. checks whether a global provider with the expected name exists;
-4. registers OpenBao as the `vault-v2` provider when missing;
-5. reads the current default principal key;
-6. refuses to replace a different configured key;
-7. attempts to select an existing key with the expected name;
-8. creates and selects the key when it does not exist;
+1. checks the extension in the `postgres` and `template1` databases
+2. creates missing extensions
+3. checks whether a global provider with the expected name exists
+4. registers OpenBao as the `vault-v2` provider when missing
+5. reads the current default principal key
+6. refuses to replace a different configured key
+7. attempts to select an existing key with the expected name
+8. creates and selects the key when it does not exist
 9. calls `pg_tde_verify_default_key()`.
 
 The extension in `template1` allows new databases to inherit `pg_tde`. The
@@ -830,20 +1149,20 @@ successfully without taking a backup. An unknown leadership state fails closed.
 
 ### pgBackRest
 
-- creates physical backups and archives WAL;
-- uses a NetApp repository encrypted with AES-256-CBC;
+- creates physical backups and archives WAL
+- uses a NetApp repository encrypted with AES-256-CBC
 - retrieves `cipher_pass`, `access_key`, and `secret_key` from OpenBao for
-  every wrapper invocation;
+  every wrapper invocation
 - retains the number of full backups configured by
   `patroni_create_pgbackrest_retention_full`.
 
 ### `pg_back`
 
-- dumps the application database in PostgreSQL custom format;
-- connects through the local socket as `dumper` using peer mapping;
-- encrypts the dump with the AGE public key retrieved from OpenBao;
-- uploads the object to the configured NetApp bucket;
-- deletes the local file after a successful upload;
+- dumps the application database in PostgreSQL custom format
+- connects through the local socket as `dumper` using peer mapping
+- encrypts the dump with the AGE public key retrieved from OpenBao
+- uploads the object to the configured NetApp bucket
+- deletes the local file after a successful upload
 - removes old objects according to `patroni_create_dump_retention` and
   `patroni_create_dump_retention_days`.
 
@@ -854,28 +1173,28 @@ separately because it is required to restore a dump.
 
 ### Continues working until a service or host restart
 
-- opened and mounted LUKS volumes;
-- running PostgreSQL and etcd;
-- existing database connections;
-- Patroni using passwords loaded at startup;
+- opened and mounted LUKS volumes
+- running PostgreSQL and etcd
+- existing database connections
+- Patroni using passwords loaded at startup
 - ongoing work on encrypted tables until `pg_tde` needs to retrieve material
   from the provider again.
 
 ### Stops working after OpenBao is lost
 
-- new pgBackRest backups and archive operations that require secrets;
-- new logical dumps;
-- secret reads through `bao-read`;
-- `pg_tde` operations that require contact with the provider;
+- new pgBackRest backups and archive operations that require secrets
+- new logical dumps
+- secret reads through `bao-read`
+- `pg_tde` operations that require contact with the provider
 - OpenBao Agent re-authentication after token loss or expiry.
 
 ### After a machine or service restart
 
 - LUKS volumes cannot be opened automatically without the Agent and access to
-  keys;
-- etcd cannot start without the correct mount;
+  keys
+- etcd cannot start without the correct mount
 - Patroni/PostgreSQL cannot start without the volume and passwords retrieved
-  by the wrapper;
+  by the wrapper
 - systemd dependencies retry the unlock service according to its configuration.
 
 ## Secret rotation procedures
@@ -887,12 +1206,12 @@ application configuration.
 
 For every rotation:
 
-1. confirm cluster health and identify the current leader;
-2. retain the previous secret in an approved location until testing completes;
+1. confirm cluster health and identify the current leader
+2. retain the previous secret in an approved location until testing completes
 3. suspend unrelated work and automatic switching when the procedure requires
-   it;
-4. change one component or one node at a time;
-5. prepare rollback before removing the old value;
+   it
+4. change one component or one node at a time
+5. prepare rollback before removing the old value
 6. record which backups, dumps, or volumes require each historical key.
 
 Do not place passwords directly in shell commands, CLI arguments, Ansible
@@ -917,7 +1236,7 @@ Path: `pg-cluster/shared/postgresql/postgres`, field `password`.
    ```
 
 4. Immediately update the OpenBao field. Treat the database and OpenBao
-   changes as one operation; do not restart or fail over between them.
+   changes as one operation. Do not restart or fail over between them.
 5. Restart Patroni on one replica at a time and wait for `running` and
    `streaming` after each restart.
 6. Perform a controlled switchover to an updated node, restart the former
@@ -977,13 +1296,13 @@ Do not overwrite the passphrase of an existing repository. Its metadata,
 backups, and WAL depend on the original value. The safest rotation creates a
 new repository generation:
 
-1. retain the old repository and passphrase;
-2. stop timers and confirm that pgBackRest is not running;
-3. allocate a new prefix or repository number;
-4. set the new passphrase and configuration as one change;
-5. create the stanza and immediately take a full backup;
-6. perform a restore test;
-7. resume timers and verify `archive-push` and `archive-get`;
+1. retain the old repository and passphrase
+2. stop timers and confirm that pgBackRest is not running
+3. allocate a new prefix or repository number
+4. set the new passphrase and configuration as one change
+5. create the stanza and immediately take a full backup
+6. perform a restore test
+7. resume timers and verify `archive-push` and `archive-get`
 8. retain the old passphrase for as long as it may be required for restore.
 
 ### Logical dump AGE key
@@ -1008,30 +1327,30 @@ Paths are node-specific:
 
 Rotate one volume on one node at a time:
 
-1. confirm that the remaining nodes can maintain quorum and service;
-2. generate a new key and store it temporarily under another field or path;
+1. confirm that the remaining nodes can maintain quorum and service
+2. generate a new key and store it temporarily under another field or path
 3. authenticate with the old key and add the new key to a free keyslot using
-   `cryptsetup luksAddKey`;
-4. validate it with `cryptsetup open --test-passphrase`;
-5. only then replace `key_b64` in OpenBao;
-6. reboot the node and verify unlock, mounts, etcd, Patroni, and membership;
+   `cryptsetup luksAddKey`
+4. validate it with `cryptsetup open --test-passphrase`
+5. only then replace `key_b64` in OpenBao
+6. reboot the node and verify unlock, mounts, etcd, Patroni, and membership
 7. only after the reboot succeeds, remove the old slot using
-   `cryptsetup luksRemoveKey`;
+   `cryptsetup luksRemoveKey`
 8. repeat for the other volume and remaining nodes.
 
 Never replace the only recoverable key before adding and testing the new one.
-Wipe does not rotate a key; it destroys the old container and creates a new one.
+Wipe does not rotate a key. It destroys the old container and creates a new one.
 
 ### `pg_tde` principal key
 
 Do not rotate the principal key while pgBackRest, a logical dump, or a restore
 is running.
 
-1. stop backup and dump timers and inspect running processes;
-2. verify cluster health and availability of the `pg-tde` OpenBao store;
-3. follow the rotation procedure approved for the installed `pg_tde` version;
-4. verify reads and writes on encrypted tables and every member's state;
-5. immediately take a new full pgBackRest backup and perform a restore test;
+1. stop backup and dump timers and inspect running processes
+2. verify cluster health and availability of the `pg-tde` OpenBao store
+3. follow the rotation procedure approved for the installed `pg_tde` version
+4. verify reads and writes on encrypted tables and every member's state
+5. immediately take a new full pgBackRest backup and perform a restore test
 6. resume incremental backups and logical dumps only after successful testing.
 
 Retain all OpenBao key versions needed to restore retained backups. Exact
@@ -1095,21 +1414,27 @@ after restarting each host.
 
 ## Limitations and assumptions
 
-- the role is intended for new machines or complete cluster recreation;
-- it does not migrate existing LUKS containers from local key files to OpenBao;
-- it does not automatically rotate secrets;
-- it does not remove remote backups during wipe;
-- it does not automatically restore data;
-- it assumes dedicated etcd instances on the same three nodes;
-- it assumes an existing NetApp bucket and valid credentials;
-- it does not create a NetApp user or policy;
-- the AGE private key is managed outside the cluster nodes;
+- the role supports new-machine bootstrap, complete cluster recreation, and
+  disruptive reapplication of the explicitly documented configuration
+- a normal rerun on an existing cluster is disruptive because it stops etcd,
+  Patroni/PostgreSQL, and the OpenBao Agent on all selected nodes
+- a normal rerun does not update Patroni `bootstrap.dcs`, `initdb`, or existing
+  etcd membership state
+- it does not migrate existing LUKS containers from local key files to OpenBao
+- it does not automatically rotate secrets
+- it does not remove remote backups during wipe
+- it restores data only when `patroni_create_recovery_mode=true` and a recovery
+  target is provided
+- it assumes dedicated etcd instances on the same three nodes
+- it assumes an existing NetApp bucket and valid credentials
+- it does not create a NetApp user or policy
+- the AGE private key is managed outside the cluster nodes
 - for an existing `pg_tde` provider, it checks the name but does not compare
-  stored parameters with the expected configuration;
+  stored parameters with the expected configuration
 - the dump timer is enabled before the post-task that creates the `dumper`
-  role; on a very long playbook run, `OnBootSec` may trigger the first dump
-  attempt before post-tasks finish;
+  role. On a very long playbook run, `OnBootSec` may trigger the first dump
+  attempt before post-tasks finish
 - the local `pg_back` package is installed with GPG signature checking
-  disabled;
+  disabled
 - production backup intervals, retention, and disk sizes must be adjusted to
   the environment requirements.

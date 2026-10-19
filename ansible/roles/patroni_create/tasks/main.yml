@@ -42,21 +42,34 @@
 - name: Configure Patroni cluster
   ansible.builtin.include_tasks: patroni.yml
 
-# Configure the encrypted S3 pgBackRest repository and helper programs, then
-# start Patroni and validate the repository stanza.
+# Configure the encrypted NetApp pgBackRest repository, helper programs,
+# logical dump configuration, and systemd backup units.
 - name: Configure pgBackRest
-  ansible.builtin.include_tasks: backup.yml
+  ansible.builtin.include_tasks: backup_config.yml
 
-# Wait until the cluster has one leader, streaming replicas, and a synchronous
-# standby, then print the final member state.
+# During a normal deployment, start Patroni and verify that the configured
+# pgBackRest stanza is accessible from the cluster leader.
+- name: Start Patroni and validate the pgBackRest stanza
+  when: not (patroni_create_recovery_mode | bool)
+  ansible.builtin.include_tasks: backup_activate.yml
+
+# In recovery mode, restore the selected backup on one node, promote it through
+# PostgreSQL, start it under Patroni, and then bring back the replica nodes.
+- name: Recovery from backup
+  ansible.builtin.include_tasks: recovery.yml
+  when: patroni_create_recovery_mode | bool
+
+# For both deployment paths, wait until the cluster has one leader, all other
+# members are streaming, and at least one synchronous standby is available.
 - name: Check cluster status
   ansible.builtin.include_tasks: check_status.yml
 
-# Configure pg_tde on the Patroni leader node
+# Configure or verify pg_tde on the leader, then enable the physical backup and
+# logical dump timers on every cluster node.
 - name: Configure pg_tde
   ansible.builtin.include_tasks: pg_tde.yml
 
-# Configure Alloy on patroni nodes
+# Configure Alloy on Patroni nodes when monitoring integration is enabled.
 - name: Configure Alloy
   ansible.builtin.include_tasks: alloy.yml
   when: patroni_create_enable_alloy

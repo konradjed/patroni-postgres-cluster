@@ -135,6 +135,19 @@ patroni_create_alloy_scrape_interval: 15s
 patroni_create_alloy_remote_write_url:
 
 
+patroni_create_recovery_mode: false
+# Set only one recovery target below. If both values are set,
+# patroni_create_recovery_backup_id takes precedence.
+patroni_create_recovery_backup_id:
+patroni_create_recovery_date:    # Format: "YYYY-MM-DD HH:MM:SS[+HH]", timezone offset recommended
+patroni_create_recovery_node: pg1
+patroni_create_recovery_db_checks: [] # Optional: list of databases to verify after recovery - empty skips the check.
+# Optional - expected default pg_tde key name during recovery, falls back to patroni_create_pg_tde_key_name when empty.
+patroni_create_recovery_pg_tde_default_key:
+patroni_create_recovery_pg_start_timeout: 600
+patroni_create_recovery_promotion_timeout: 3600
+
+
 # ==============================================================================
 # !!! DANGER !!! DESTRUCTIVE AND IRREVERSIBLE CLUSTER RECREATION !!! DANGER !!!
 # ==============================================================================

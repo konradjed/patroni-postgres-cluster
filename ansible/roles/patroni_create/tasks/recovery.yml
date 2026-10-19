@@ -1,0 +1,207 @@
+---
+- name: Recover the selected PostgreSQL node
+  when: inventory_hostname == patroni_create_recovery_node
+  block:
+    - name: Verify existence of stanza
+      when: not (patroni_create_wipe_existing_cluster | bool)
+      ansible.builtin.command:
+        argv:
+          - /usr/local/libexec/patroni/pgbackrest-wrapper
+          - --stanza={{ patroni_create_cluster_name }}
+          - info
+      become_user: postgres
+      changed_when: false
+
+    - name: Verify existence of backup
+      when: 
+        - patroni_playbook_recovery_type == "backup"
+        - not (patroni_create_wipe_existing_cluster | bool)
+      ansible.builtin.command:
+        argv:
+          - /usr/local/libexec/patroni/pgbackrest-wrapper
+          - --stanza={{ patroni_create_cluster_name }}
+          - --set={{ patroni_playbook_recovery_point }}
+          - info
+      become_user: postgres
+      changed_when: false
+
+    - name: Restore selected pgBackRest backup
+      ansible.builtin.command:
+        argv:
+          - /usr/local/libexec/patroni/pgbackrest-wrapper
+          - "--stanza={{ patroni_create_cluster_name }}"
+          - "--set={{ patroni_playbook_recovery_point }}"
+          - --type=immediate
+          - --target-action=promote
+          - --cmd=/usr/local/libexec/patroni/pgbackrest-wrapper
+          - restore
+      become_user: postgres
+      when: patroni_playbook_recovery_type == "backup"
+      changed_when: true
+
+    - name: Restore PostgreSQL to selected date
+      ansible.builtin.command:
+        argv:
+          - /usr/local/libexec/patroni/pgbackrest-wrapper
+          - "--stanza={{ patroni_create_cluster_name }}"
+          - --type=time
+          - "--target={{ patroni_playbook_recovery_point }}"
+          - --target-action=promote
+          - --cmd=/usr/local/libexec/patroni/pgbackrest-wrapper
+          - restore
+      become_user: postgres
+      when: patroni_playbook_recovery_type == "date"
+      changed_when: true
+
+    - name: Create runtime directory
+      ansible.builtin.file:
+        path: "{{ patroni_create_vars_postgres_socket }}"
+        state: directory
+        owner: postgres
+        group: postgres
+        mode: '0700'
+    - name: Start Postgres
+      block:
+        - name: Start Postgres with recovery settings
+          ansible.builtin.command:
+            argv:
+              - "{{ patroni_create_vars_postgres_bin }}/pg_ctl"
+              - "--pgdata={{ patroni_create_vars_postgres_data_dir }}"
+              - "--timeout={{ patroni_create_recovery_pg_start_timeout }}"
+              - --wait
+              - start
+          become_user: postgres
+          changed_when: true
+
+        - name: Confirm promotion
+          ansible.builtin.command:
+            argv:
+              - "{{ patroni_create_vars_postgres_bin }}/psql"
+              - --dbname=postgres
+              - --no-psqlrc
+              - --no-align
+              - --tuples-only
+              - --command=SELECT pg_is_in_recovery();
+          become_user: postgres
+          register: patroni_playbook_recovery_leader_status
+          changed_when: false
+          until:
+            - patroni_playbook_recovery_leader_status.rc == 0
+            - patroni_playbook_recovery_leader_status.stdout | trim == "f"
+          retries: "{{ ((patroni_create_recovery_promotion_timeout | int) / 5) | round(0, 'ceil') | int }}"
+          delay: 5
+
+        - name: Verify pg_tde default key
+          ansible.builtin.command:
+            argv:
+              - "{{ patroni_create_vars_postgres_bin }}/psql"
+              - --dbname=postgres
+              - --no-psqlrc
+              - --set=ON_ERROR_STOP=1
+              - --command=SELECT pg_tde_verify_default_key();
+          become_user: postgres
+          changed_when: false
+
+        - name: Verify selected databases after recovery (optional)
+          ansible.builtin.include_tasks: subtasks/verify_recovered_dbs.yml
+          loop: "{{ patroni_create_recovery_db_checks | default([], true) }}"
+          loop_control:
+            loop_var: db
+            label: "{{ db }}"
+
+
+        - name: Stop PostgreSQL after recovery verification
+          ansible.builtin.command:
+            argv:
+              - "{{ patroni_create_vars_postgres_bin }}/pg_ctl"
+              - "--pgdata={{ patroni_create_vars_postgres_data_dir }}"
+              - --mode=fast
+              - --wait
+              - stop
+          become_user: postgres
+          changed_when: true
+
+      always:
+        - name: Check postgres status
+          ansible.builtin.command:
+            argv:
+              - "{{ patroni_create_vars_postgres_bin }}/pg_ctl"
+              - "--pgdata={{ patroni_create_vars_postgres_data_dir }}"
+              - status
+          become_user: postgres
+          register: patroni_playbook_recovery_pg_status
+          changed_when: false
+          failed_when: false
+
+        - name: Stop postgres if running
+          ansible.builtin.command:
+            argv:
+              - "{{ patroni_create_vars_postgres_bin }}/pg_ctl"
+              - "--pgdata={{ patroni_create_vars_postgres_data_dir }}"
+              - --mode=fast
+              - --wait
+              - stop
+          become_user: postgres
+          when: patroni_playbook_recovery_pg_status.rc == 0
+          changed_when: true
+
+    - name: Start Patroni on the recovered node
+      ansible.builtin.systemd_service:
+        name: percona-patroni.service
+        state: started
+        enabled: true
+
+    - name: Check recovered leader status
+      ansible.builtin.command: /usr/local/lib/patroni/leader-gate
+      register: patroni_playbook_recovered_leader
+      changed_when: false
+      until: patroni_playbook_recovered_leader.rc == 0
+      retries: 60
+      delay: 5
+
+- name: Start Patroni on replica nodes
+  ansible.builtin.systemd_service:
+    name: percona-patroni.service
+    state: started
+    enabled: true
+  when: inventory_hostname != patroni_create_recovery_node
+  throttle: 1
+
+- name: Decide whether replicas require reinitialization
+  ansible.builtin.pause:
+    prompt: >-
+      Check replica status using patronictl list.
+      Type REINIT to rebuild all replicas.
+      Press Enter or provide any other value to skip
+  register: patroni_playbook_reinit_decision
+  run_once: true
+
+- name: Show replica reinitialization decision
+  ansible.builtin.debug:
+    msg: >-
+      Replica reinitialization {{
+        'was confirmed and will be performed'
+        if patroni_playbook_reinit_decision.user_input | trim | upper == 'REINIT'
+        else 'was skipped. Replica health will be verified by the cluster status check'
+      }}
+  run_once: true
+
+- name: Reinitialize replica nodes
+  ansible.builtin.command:
+    argv:
+      - patronictl
+      - -c
+      - /etc/patroni/patroni.yml
+      - reinit
+      - "{{ patroni_create_cluster_name }}"
+      - "{{ item }}"
+      - --force
+      - --wait
+  become_user: postgres
+  loop: "{{ groups[patroni_create_inventory_group] }}"
+  when: 
+    - item != patroni_create_recovery_node
+    - patroni_playbook_reinit_decision.user_input | trim | upper == 'REINIT'
+  delegate_to: "{{ patroni_create_recovery_node }}"
+  run_once: true
+  changed_when: true

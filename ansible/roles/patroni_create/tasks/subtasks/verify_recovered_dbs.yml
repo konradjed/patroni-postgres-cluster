@@ -1,0 +1,39 @@
+---
+
+- name: Verify access to the selected recovered database (optional)
+  ansible.builtin.command:
+    argv:
+      - "{{ patroni_create_vars_postgres_bin }}/psql"
+      - "--dbname={{ db }}"
+      - --no-psqlrc
+      - --set=ON_ERROR_STOP=1
+      - --command=SELECT 1;
+  become_user: postgres
+  changed_when: false
+
+- name: Read recovered database encryption settings (optional)
+  ansible.builtin.command:
+    argv:
+      - "{{ patroni_create_vars_postgres_bin }}/psql"
+      - "--dbname={{ db }}"
+      - --no-psqlrc
+      - --no-align
+      - --tuples-only
+      - --set=ON_ERROR_STOP=1
+      - --command=SHOW default_table_access_method;
+      - --command=SHOW pg_tde.enforce_encryption;
+  become_user: postgres
+  register: patroni_playbook_recovery_db_encryption
+  changed_when: false
+
+- name: Validate recovered database encryption settings
+  ansible.builtin.assert:
+    that:
+      - patroni_playbook_recovery_db_encryption.stdout_lines == ['tde_heap', 'on']
+    fail_msg: >-
+        Database {{ db }} must have
+        default_table_access_method=tde_heap and pg_tde.enforce_encryption=on.
+        Received: {{ patroni_playbook_recovery_db_encryption.stdout_lines }}
+    success_msg: >-
+      Database {{ db }} has
+      default_table_access_method=tde_heap and pg_tde.enforce_encryption=on.

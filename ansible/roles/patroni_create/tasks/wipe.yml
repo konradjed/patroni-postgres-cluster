@@ -3,6 +3,9 @@
 - name: Wipe postgres data and WAL archive
   when: patroni_create_wipe_existing_cluster | bool
   block:
+    - name: Gather service facts before wiping
+      ansible.builtin.service_facts:
+
     - name: Stop and disable backup timers before wiping
       ansible.builtin.systemd_service:
         name: "{{ item }}"
@@ -76,7 +79,9 @@
       ansible.builtin.systemd_service:
         name: percona-patroni
         state: stopped
-      failed_when: false
+      when:
+        - "'percona-patroni.service' in ansible_facts.services"
+        - ansible_facts.services['percona-patroni.service'].status | default('') != 'not-found'
 
     - name: Remove cluster from DCS
       ansible.builtin.command: patronictl -c {{ patroni_create_vars_patroni_config_yaml }} remove {{ patroni_create_cluster_name }}
@@ -100,7 +105,9 @@
       ansible.builtin.systemd_service:
         name: etcd
         state: stopped
-      failed_when: false
+      when:
+        - "'etcd.service' in ansible_facts.services"
+        - ansible_facts.services['etcd.service'].status | default('') != 'not-found'
 
     - name: Unmount etcd data volume
       ansible.posix.mount:
