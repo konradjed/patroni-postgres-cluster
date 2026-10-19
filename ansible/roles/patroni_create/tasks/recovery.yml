@@ -67,6 +67,7 @@
             argv:
               - "{{ patroni_create_vars_postgres_bin }}/pg_ctl"
               - "--pgdata={{ patroni_create_vars_postgres_data_dir }}"
+              - "--timeout={{ patroni_create_recovery_pg_start_timeout }}"
               - --wait
               - start
           become_user: postgres
@@ -87,8 +88,8 @@
           until:
             - patroni_playbook_recovery_leader_status.rc == 0
             - patroni_playbook_recovery_leader_status.stdout | trim == "f"
-          retries: 60
-          delay: 2
+          retries: "{{ ((patroni_create_recovery_promotion_timeout | int) / 5) | round(0, 'ceil') | int }}"
+          delay: 5
 
         - name: Verify pg_tde default key
           ansible.builtin.command:

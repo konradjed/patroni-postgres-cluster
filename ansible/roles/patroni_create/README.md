@@ -582,6 +582,8 @@ not require an inbound port on a node. Port 12345 is allowed from
 | `patroni_create_recovery_node` | `pg1` | Inventory host restored first and promoted to leader. |
 | `patroni_create_recovery_db_checks` | `[]` | Optional list of databases to check for a connection, `tde_heap`, and enforced encryption. An empty list skips these checks. |
 | `patroni_create_recovery_pg_tde_default_key` | empty | Expected default key name after recovery. When empty, `patroni_create_pg_tde_key_name` is used. |
+| `patroni_create_recovery_pg_start_timeout` | `600` | Maximum time in seconds for `pg_ctl` to wait until PostgreSQL accepts connections during recovery. |
+| `patroni_create_recovery_promotion_timeout` | `3600` | Approximate wait budget in seconds for recovery to finish and the node to be promoted. The role checks every five seconds, with additional time spent executing each check. |
 
 Select exactly one recovery target. An incremental backup also requires its
 base full backup and the relevant WAL in the existing stanza. Review the
@@ -903,6 +905,15 @@ The role restores the selected backup on one node. It starts PostgreSQL with
 optionally checks each selected database, stops PostgreSQL, and starts that
 node under Patroni. It then starts the replicas one at a time. The operator
 does not need to perform this step manually.
+
+The startup and promotion waits have separate limits. By default, `pg_ctl`
+waits up to 600 seconds for PostgreSQL to accept connections, then the role
+allows approximately 3600 seconds for `pg_is_in_recovery()` to return `false`.
+Accepting connections does not by itself confirm that recovery has finished.
+Adjust `patroni_create_recovery_pg_start_timeout` and
+`patroni_create_recovery_promotion_timeout` before a recovery that may need
+more time. If either wait fails, the cleanup block attempts to stop the manually started PostgreSQL instance and the recovery
+run fails.
 
 **The playbook pauses for a replica `reinit` decision and waits for input.**
 At that point, inspect their state with `patronictl list`. Enter `REINIT` only

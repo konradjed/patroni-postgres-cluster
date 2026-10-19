@@ -144,6 +144,8 @@ patroni_create_recovery_node: pg1
 patroni_create_recovery_db_checks: [] # Optional: list of databases to verify after recovery - empty skips the check.
 # Optional - expected default pg_tde key name during recovery, falls back to patroni_create_pg_tde_key_name when empty.
 patroni_create_recovery_pg_tde_default_key:
+patroni_create_recovery_pg_start_timeout: 600
+patroni_create_recovery_promotion_timeout: 3600
 
 
 # ==============================================================================
