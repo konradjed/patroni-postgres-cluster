@@ -11,6 +11,10 @@
           - info
       become_user: postgres
       changed_when: false
+      register: patroni_playbook_recovery_stanza_info
+      failed_when: >-
+        patroni_playbook_recovery_stanza_info.rc != 0 or
+        'status: error' in patroni_playbook_recovery_stanza_info.stdout
 
     - name: Verify existence of backup
       when: 
@@ -24,6 +28,10 @@
           - info
       become_user: postgres
       changed_when: false
+      register: patroni_playbook_recovery_backup_info
+      failed_when: >-
+        patroni_playbook_recovery_backup_info.rc != 0 or
+        'status: error' in patroni_playbook_recovery_backup_info.stdout
 
     - name: Restore selected pgBackRest backup
       ansible.builtin.command:
