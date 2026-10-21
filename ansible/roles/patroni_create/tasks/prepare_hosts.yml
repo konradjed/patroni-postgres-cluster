@@ -22,7 +22,6 @@
       - epel-release
       - firewalld
       - python3-firewall
-      - cryptsetup
     state: present
   register: patroni_playbook_repo_prereqs
   retries: 5
@@ -84,8 +83,6 @@
       - binutils
       - percona-patroni
       - percona-pgbackrest
-      - percona-pg_tde18
-      - openbao
     state: present
   register: patroni_playbook_cluster_packages
   retries: 5
@@ -124,14 +121,6 @@
     enabled: false
     masked: false
   when: "'percona-patroni.service' in ansible_facts.services"
-
-- name: Stop Openbao Agent if runs
-  ansible.builtin.systemd_service:
-    name: openbao-agent
-    state: stopped
-    enabled: false
-    masked: false
-  when: "'openbao-agent.service' in ansible_facts.services"
 
 - name: Import CA certificate
   ansible.builtin.copy:

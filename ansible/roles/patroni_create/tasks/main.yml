@@ -17,15 +17,10 @@
 - name: Prepare system
   ansible.builtin.include_tasks: prepare_hosts.yml
 
-# Install and configure the OpenBao Agent, authenticate the node with its
-# client certificate, and verify access to all secrets required by the role.
-- name: Configure openbao agent
-  ansible.builtin.include_tasks: bao_agent.yml
-
 # Validate the configured block devices, provision/open LUKS2 containers,
 # create filesystems and mount the PostgreSQL and etcd volumes.
 - name: Encrypt data volumes
-  ansible.builtin.include_tasks: luks2.yml
+  ansible.builtin.include_tasks: volumes.yml
 
 # Apply the default-deny host firewall policy and allow only management,
 # application, and inter-node cluster traffic.
@@ -64,12 +59,11 @@
 - name: Check cluster status
   ansible.builtin.include_tasks: check_status.yml
 
-# Configure or verify pg_tde on the leader, then enable the physical backup and
-# logical dump timers on every cluster node.
-- name: Configure pg_tde
-  ansible.builtin.include_tasks: pg_tde.yml
-
 # Configure Alloy on Patroni nodes when monitoring integration is enabled.
 - name: Configure Alloy
   ansible.builtin.include_tasks: alloy.yml
   when: patroni_create_enable_alloy
+
+- name: Mark run as successful
+  ansible.builtin.set_fact:
+    patroni_playbook_success: true

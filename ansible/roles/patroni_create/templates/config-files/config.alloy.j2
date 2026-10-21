@@ -9,7 +9,7 @@ prometheus.exporter.unix "node" {
   systemd {
     enable_restarts = true
     start_time = true
-    unit_include = "^(percona-patroni|etcd|openbao-agent|patroni-unlock-volumes|patroni-pgdump|patroni-backup@(full|incr)|alloy)\\.service$"
+    unit_include = "^(percona-patroni|etcd|patroni-pgdump|patroni-backup@(full|incr)|alloy)\\.service$"
   }
 }
 

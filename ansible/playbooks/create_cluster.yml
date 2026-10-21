@@ -30,28 +30,14 @@
               no_log: true
 
             - name: Load SQL file using application password from OpenBao
-              ansible.builtin.shell: |
-                set -euo pipefail
-
-                export PATRONI_APP_PASSWORD
-
-                PATRONI_APP_PASSWORD="$(
-                  /usr/local/libexec/patroni/bao-read \
-                    {{ patroni_create_bao_app_user_password_path | quote }} \
-                    password
-                )"
-
-                if [[ -z "$PATRONI_APP_PASSWORD" ]]; then
-                  echo "Application user password received from OpenBao is empty" >&2
-                  exit 1
-                fi
-
-                exec /usr/pgsql-18/bin/psql \
-                  --no-psqlrc \
-                  --set=ON_ERROR_STOP=1 \
-                  --file=/var/lib/pgsql/appdb.sql
-              args:
-                executable: /bin/bash
+              ansible.builtin.command:
+                argv:
+                  - /usr/pgsql-18/bin/psql
+                  - --no-psqlrc
+                  - --set=ON_ERROR_STOP=1
+                  - --file=/var/lib/pgsql/appdb.sql
+              environment:
+                PATRONI_APP_PASSWORD: "{{ patroni_create_app_user_pass }}"
               become_user: postgres
               changed_when: true
               diff: false

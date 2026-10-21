@@ -1,0 +1,129 @@
+---
+
+- name: Inspect configured data devices
+  ansible.builtin.stat:
+    path: "{{ item.device }}"
+    follow: true
+  register: patroni_playbook_volume_device_stats
+  loop: "{{ patroni_create_data_volumes }}"
+  loop_control:
+    label: "{{ item.name }} -> {{ item.device }}"
+
+- name: Verify configured data devices exist and are block devices
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isblk
+    fail_msg: >-
+      {{ item.item.device | default('<undefined>') }} configured for
+      {{ item.item.name }} does not exist or is not a block device.
+  loop: "{{ patroni_playbook_volume_device_stats.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Read configured device type and size
+  ansible.builtin.command:
+    argv:
+      - lsblk
+      - --bytes
+      - --nodeps
+      - --noheadings
+      - --output
+      - TYPE,SIZE
+      - "{{ item.device }}"
+  register: patroni_playbook_volume_device_properties
+  changed_when: false
+  loop: "{{ patroni_create_data_volumes }}"
+  loop_control:
+    label: "{{ item.name }} -> {{ item.device }}"
+
+- name: Verify each device is a whole disk of the declared size
+  ansible.builtin.assert:
+    that:
+      - item.stdout.split() | length == 2
+      - item.stdout.split()[0] == 'disk'
+      - (item.stdout.split()[1] | int) >= ((item.item.gib | int) * 1073741824 * 0.98)
+      - (item.stdout.split()[1] | int) <= ((item.item.gib | int) * 1073741824 * 1.02)
+    fail_msg: >-
+      {{ item.item.device }} is not a whole disk of approximately
+      {{ item.item.gib }} GiB (got: {{ item.stdout }}).
+  loop: "{{ patroni_playbook_volume_device_properties.results }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+
+- name: Define data volumes
+  ansible.builtin.set_fact:
+    patroni_playbook_volumes: "{{ patroni_create_data_volumes }}"
+
+- name: Ensure data filesystems exist
+  community.general.filesystem:
+    dev: "{{ item.device }}"
+    fstype: "{{ patroni_create_volume_fstype }}"
+    force: false
+  loop: "{{ patroni_playbook_volumes }}"
+  loop_control:
+    label: "{{ item.name }} -> {{ item.device }}"
+
+- name: Install the mount guard used by the service units
+  ansible.builtin.copy:
+    src: patroni-require-volume
+    dest: /usr/local/sbin/patroni-require-volume
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Mount each data volume and persist it in fstab
+  ansible.posix.mount:
+    path: "{{ item.path }}"
+    src: "{{ item.device }}"
+    fstype: "{{ patroni_create_volume_fstype }}"
+    opts: defaults,noauto
+    state: mounted
+  loop: "{{ patroni_playbook_volumes }}"
+  loop_control:
+    label: "{{ item.path }} <- {{ item.device }}"
+
+- name: Create Patroni helper directory
+  ansible.builtin.file:
+    path: /usr/local/libexec/patroni
+    state: directory
+    owner: root
+    group: postgres
+    mode: '0750'
+
+- name: Install volume mount helper
+  ansible.builtin.template:
+    src: patroni-mount-volumes.j2
+    dest: /usr/local/libexec/patroni/patroni-mount-volumes
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Install volume mount service
+  ansible.builtin.template:
+    src: systemd/patroni-mount-volumes.service.j2
+    dest: /etc/systemd/system/patroni-mount-volumes.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Apply volume mount service definition
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the volume mount service
+  ansible.builtin.systemd_service:
+    name: patroni-mount-volumes.service
+    enabled: true
+    state: started
+
+- name: Set ownership of each mounted volume
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.owner }}"
+    mode: '0700'
+  loop: "{{ patroni_playbook_volumes }}"
+  loop_control:
+    label: "{{ item.path }}"

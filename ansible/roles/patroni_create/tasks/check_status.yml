@@ -37,3 +37,26 @@
   loop_control:
     label: "{{ item.name }}"
   run_once: true
+
+- name: Create full backup of recovered cluster
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/pgbackrest
+      - "--stanza={{ patroni_create_cluster_name }}"
+      - --type=full
+      - backup
+  become_user: postgres
+  when:
+    - inventory_hostname == patroni_create_recovery_node
+    - patroni_create_recovery_mode | bool
+  changed_when: true
+
+- name: Enable and start the backup timers
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - patroni-full-backup.timer
+    - patroni-incre-backup.timer
+    - patroni-pgdump.timer

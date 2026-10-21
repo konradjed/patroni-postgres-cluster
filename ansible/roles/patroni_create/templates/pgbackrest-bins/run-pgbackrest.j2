@@ -18,4 +18,4 @@ case $? in
 esac
 
 echo "Leader confirmed; taking a $TYPE backup of stanza $STANZA."
-exec /usr/local/libexec/patroni/pgbackrest-wrapper --stanza="$STANZA" --type="$TYPE" backup
+exec /usr/bin/pgbackrest --stanza="$STANZA" --type="$TYPE" backup

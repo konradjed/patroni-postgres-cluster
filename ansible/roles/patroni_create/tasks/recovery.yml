@@ -6,7 +6,7 @@
       when: not (patroni_create_wipe_existing_cluster | bool)
       ansible.builtin.command:
         argv:
-          - /usr/local/libexec/patroni/pgbackrest-wrapper
+          - /usr/bin/pgbackrest
           - --stanza={{ patroni_create_cluster_name }}
           - info
       become_user: postgres
@@ -18,7 +18,7 @@
         - not (patroni_create_wipe_existing_cluster | bool)
       ansible.builtin.command:
         argv:
-          - /usr/local/libexec/patroni/pgbackrest-wrapper
+          - /usr/bin/pgbackrest
           - --stanza={{ patroni_create_cluster_name }}
           - --set={{ patroni_playbook_recovery_point }}
           - info
@@ -28,12 +28,12 @@
     - name: Restore selected pgBackRest backup
       ansible.builtin.command:
         argv:
-          - /usr/local/libexec/patroni/pgbackrest-wrapper
+          - /usr/bin/pgbackrest
           - "--stanza={{ patroni_create_cluster_name }}"
           - "--set={{ patroni_playbook_recovery_point }}"
           - --type=immediate
           - --target-action=promote
-          - --cmd=/usr/local/libexec/patroni/pgbackrest-wrapper
+          - --cmd=/usr/bin/pgbackrest
           - restore
       become_user: postgres
       when: patroni_playbook_recovery_type == "backup"
@@ -42,12 +42,12 @@
     - name: Restore PostgreSQL to selected date
       ansible.builtin.command:
         argv:
-          - /usr/local/libexec/patroni/pgbackrest-wrapper
+          - /usr/bin/pgbackrest
           - "--stanza={{ patroni_create_cluster_name }}"
           - --type=time
           - "--target={{ patroni_playbook_recovery_point }}"
           - --target-action=promote
-          - --cmd=/usr/local/libexec/patroni/pgbackrest-wrapper
+          - --cmd=/usr/bin/pgbackrest
           - restore
       become_user: postgres
       when: patroni_playbook_recovery_type == "date"
@@ -90,17 +90,6 @@
             - patroni_playbook_recovery_leader_status.stdout | trim == "f"
           retries: "{{ ((patroni_create_recovery_promotion_timeout | int) / 5) | round(0, 'ceil') | int }}"
           delay: 5
-
-        - name: Verify pg_tde default key
-          ansible.builtin.command:
-            argv:
-              - "{{ patroni_create_vars_postgres_bin }}/psql"
-              - --dbname=postgres
-              - --no-psqlrc
-              - --set=ON_ERROR_STOP=1
-              - --command=SELECT pg_tde_verify_default_key();
-          become_user: postgres
-          changed_when: false
 
         - name: Verify selected databases after recovery (optional)
           ansible.builtin.include_tasks: subtasks/verify_recovered_dbs.yml

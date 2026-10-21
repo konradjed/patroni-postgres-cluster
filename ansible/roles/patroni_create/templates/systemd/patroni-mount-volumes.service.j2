@@ -1,0 +1,15 @@
+[Unit]
+Description=Mount Patroni data volumes
+Wants=network-online.target
+After=network-online.target
+Before=etcd.service percona-patroni.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/patroni/patroni-mount-volumes
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

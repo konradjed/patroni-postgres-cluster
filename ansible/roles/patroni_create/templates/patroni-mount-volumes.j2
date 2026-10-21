@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+
+{% for volume in patroni_playbook_volumes %}
+if ! mountpoint --quiet {{ volume.path | quote }}; then
+    mount {{ volume.path | quote }}
+fi
+{% endfor %}

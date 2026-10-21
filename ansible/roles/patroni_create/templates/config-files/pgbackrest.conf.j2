@@ -6,10 +6,16 @@ repo1-s3-endpoint={{ patroni_create_s3_endpoint }}
 repo1-storage-port={{ patroni_create_s3_port }}
 repo1-s3-region={{ patroni_create_s3_region }}
 repo1-s3-uri-style=path
+repo1-s3-key={{ patroni_create_s3_access_key }}
+repo1-s3-key-secret={{ patroni_create_s3_secret }}
 
 repo1-storage-ca-file=/etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt
+{% if patroni_create_pgbackrest_encryption | bool %}
 repo1-cipher-type=aes-256-cbc
-
+repo1-cipher-pass={{ patroni_create_pgbackrest_encryption_cipher_pass }}
+{% else %}
+repo1-cipher-type=none
+{% endif %}
 
 repo1-retention-full={{ patroni_create_pgbackrest_retention_full }}
 

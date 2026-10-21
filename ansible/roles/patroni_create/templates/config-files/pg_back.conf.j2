@@ -19,10 +19,13 @@ purge_remote = true
 purge_older_than = {{ patroni_create_dump_retention_days }}
 
 # Encryption settings
+{% if patroni_create_dump_encryption | bool %}
 encrypt = true
 encrypt_keep_source = false
-# The public key is read from OpenBao secret and
-# exported to environment variable by the wrapper script
+cipher_public_key = {{ patroni_create_dump_encryption_public_key }}
+{% else %}
+encrypt = false
+{% endif %}
 
 #S3 settings
 upload = s3
@@ -33,5 +36,5 @@ s3_bucket = {{ patroni_create_s3_bucket_name }}
 s3_endpoint = https://{{ patroni_create_s3_endpoint }}:{{ patroni_create_s3_port }}
 s3_force_path = true
 s3_tls = true
-# S3 access key and secret are read from OpenBao secret and 
-# exported to environment variables by the wrapper script
+s3_key_id = {{ patroni_create_s3_access_key }}
+s3_secret = {{ patroni_create_s3_secret }}

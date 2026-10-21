@@ -1,0 +1,31 @@
+---
+- name: Recover Patroni cluster
+  hosts: psql
+  become: true
+  any_errors_fatal: true
+  pre_tasks:
+    - name: Info
+      ansible.builtin.debug:
+        msg: "Starting recovery procedure..."
+  roles:
+    - role: patroni_create
+      vars:
+        patroni_create_recovery_mode: true
+        # Set only one recovery target below. If both values are set,
+        # patroni_create_recovery_backup_id takes precedence.
+        patroni_create_recovery_backup_id:
+        patroni_create_recovery_date:    # Format: "YYYY-MM-DD HH:MM:SS[+HH]", timezone offset recommended
+        patroni_create_recovery_node: pg1
+        patroni_create_recovery_db_checks: [] # Optional: list of databases to verify after recovery - empty skips the check.
+        # Optional - expected default pg_tde key name during recovery, falls back to patroni_create_pg_tde_key_name when empty.
+        patroni_create_recovery_pg_start_timeout: 600
+        patroni_create_recovery_promotion_timeout: 3600
+        # ==============================================================================
+        # !!! DANGER !!! DESTRUCTIVE AND IRREVERSIBLE CLUSTER RECREATION !!! DANGER !!!
+        # ==============================================================================
+        patroni_create_wipe_existing_cluster: false
+        # ==============================================================================
+  post_tasks:
+    - name: Show result
+      ansible.builtin.debug:
+        msg: " {{ 'Recovery complated successfully' if patroni_playbook_success | default(false) else 'FAILED' }}"

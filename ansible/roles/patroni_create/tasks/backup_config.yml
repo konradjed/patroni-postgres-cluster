@@ -48,18 +48,9 @@
     dest: "{{ patroni_create_vars_pgback_config_dir }}/pg_back.conf"
     owner: postgres
     group: postgres
-    mode: '0640'
-
-- name: Copy wrappers
-  ansible.builtin.template:
-    src: "openbao-wrappers/{{ item }}.j2"
-    dest: "/usr/local/libexec/patroni/{{ item }}"
-    owner: root
-    group: postgres
-    mode: '0750'
-  loop:
-    - pgbackrest-wrapper
-    - pgback-wrapper
+    mode: '0600'
+  no_log: true
+  diff: false
 
 - name: Copy backup bin files
   ansible.builtin.template:

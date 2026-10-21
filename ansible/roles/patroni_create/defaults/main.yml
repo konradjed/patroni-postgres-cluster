@@ -61,7 +61,12 @@ patroni_create_postgres_max_replication_slots: 10
 patroni_create_postgres_max_wal_size: 10GB
 patroni_create_postgres_archive_timeout: 60s
 
+patroni_create_postgres_user_pass:
+
+patroni_create_replicator_user_pass:
+
 patroni_create_app_db_name: app
+patroni_create_app_user_pass:
 
 
 # Watchdog settings
@@ -77,6 +82,8 @@ patroni_create_s3_port: 9000
 patroni_create_s3_region: eu-central-1
 patroni_create_s3_backup_prefix: /pgbackrest
 patroni_create_s3_dump_prefix: pgdump
+patroni_create_s3_access_key:
+patroni_create_s3_secret:
 
 
 # PgBackRest and dumps timers settings
@@ -93,6 +100,8 @@ patroni_create_interval_dump: 15min
 # Dump settings
 patroni_create_dump_retention: 3
 patroni_create_dump_retention_days: 7
+patroni_create_dump_encryption: false
+patroni_create_dump_encryption_public_key:
 
 
 # pgbackrest settings
@@ -102,28 +111,8 @@ patroni_create_pgbackrest_start_fast: true
 patroni_create_pgbackrest_log_level_console: info
 patroni_create_pgbackrest_log_level_file: detail
 patroni_create_pgbackrest_archive_timeout: 60
-
-
-# Openbao settings
-patroni_create_bao_secret_namespace: patroni
-patroni_create_bao_auth_path: patroni-cert
-patroni_create_bao_address: https://192.168.172.160:8200
-patroni_create_bao_token_path: /run/openbao-agent/token
-patroni_create_bao_secrets_mount: patroni-secrets
-patroni_create_bao_cluster_path: pg-cluster
-patroni_create_bao_token_wait_timeout: 120
-patroni_create_bao_postgres_password_path: "{{ patroni_create_bao_cluster_path }}/shared/postgresql/postgres"
-patroni_create_bao_replicator_password_path: "{{ patroni_create_bao_cluster_path }}/shared/postgresql/replicator"
-patroni_create_bao_app_user_password_path: "{{ patroni_create_bao_cluster_path }}/shared/postgresql/app"
-patroni_create_bao_pgbackrest_path: "{{ patroni_create_bao_cluster_path }}/shared/pgbackrest"
-patroni_create_bao_pgdump_path: "{{ patroni_create_bao_cluster_path }}/shared/pgdump"
-patroni_create_bao_s3_path: "{{ patroni_create_bao_cluster_path }}/shared/s3"
-
-
-# Pg-tde settings
-patroni_create_pg_tde_provider_name: openbao-patroni
-patroni_create_pg_tde_mount_path: pg-tde
-patroni_create_pg_tde_key_name: pg-cluster-default-key-v1
+patroni_create_pgbackrest_encryption: false
+patroni_create_pgbackrest_encryption_cipher_pass:
 
 
 # Alloy settings
@@ -143,7 +132,6 @@ patroni_create_recovery_date:    # Format: "YYYY-MM-DD HH:MM:SS[+HH]", timezone 
 patroni_create_recovery_node: pg1
 patroni_create_recovery_db_checks: [] # Optional: list of databases to verify after recovery - empty skips the check.
 # Optional - expected default pg_tde key name during recovery, falls back to patroni_create_pg_tde_key_name when empty.
-patroni_create_recovery_pg_tde_default_key:
 patroni_create_recovery_pg_start_timeout: 600
 patroni_create_recovery_promotion_timeout: 3600
 

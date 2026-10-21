@@ -38,12 +38,12 @@
         argv:
           - /usr/local/sbin/patroni-require-volume
           - "{{ item.path }}"
-          - "/dev/mapper/patroni-{{ item.name }}"
+          - "{{ item.device }}"
       changed_when: false
       loop: "{{ patroni_create_data_volumes }}"
       loop_control:
         label: >-
-          {{ item.path }} <- /dev/mapper/patroni-{{ item.name }}
+          {{ item.path }} <- {{ item.device }}
 
     - name: Check for existing Patroni config
       ansible.builtin.stat:
@@ -109,12 +109,30 @@
         - "'etcd.service' in ansible_facts.services"
         - ansible_facts.services['etcd.service'].status | default('') != 'not-found'
 
-    - name: Unmount etcd data volume
-      ansible.posix.mount:
-        path: "{{ patroni_create_vars_etcd_data_dir }}"
-        state: unmounted
+    - name: Verify etcd volume before removing its contents
+      ansible.builtin.command:
+        argv:
+          - /usr/local/sbin/patroni-require-volume
+          - "{{ item.path }}"
+          - "{{ item.device }}"
+      loop: "{{ patroni_create_data_volumes }}"
+      loop_control:
+        label: "{{ item.path }} <- {{ item.device }}"
+      when: item.path == patroni_create_vars_etcd_data_dir
+      changed_when: false
 
-    - name: Remove etcd data directory
+    - name: Find existing entries on the etcd volume
+      ansible.builtin.find:
+        paths: "{{ patroni_create_vars_etcd_data_dir }}"
+        file_type: any
+        hidden: true
+        recurse: false
+      register: patroni_playbook_etcd_entries
+
+    - name: Remove existing entries from the etcd volume
       ansible.builtin.file:
-        path: "{{ patroni_create_vars_etcd_data_dir }}"
+        path: "{{ item.path }}"
         state: absent
+      loop: "{{ patroni_playbook_etcd_entries.files }}"
+      loop_control:
+        label: "{{ item.path }}"

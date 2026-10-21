@@ -65,6 +65,37 @@
       Exactly one PostgreSQL volume owned by postgres and one etcd volume
       owned by etcd must be configured.
 
+- name: Verify required secret variables are non-empty
+  ansible.builtin.assert:
+    that:
+      - patroni_create_postgres_user_pass | default('', true) | string | trim | length > 0
+      - patroni_create_replicator_user_pass | default('', true) | string | trim | length > 0
+      - patroni_create_app_user_pass | default('', true) | string | trim | length > 0
+      - patroni_create_s3_access_key | default('', true) | string | trim | length > 0
+      - patroni_create_s3_secret | default('', true) | string | trim | length > 0
+    fail_msg: >-
+      A required secret variable is undefined, empty, or contains only whitespace.
+      Check the failed assertion and provide the value through Ansible Vault.
+    success_msg: "All checked secret variables are set and non-empty."
+
+- name: Check dump encrytpion is set
+  when: patroni_create_dump_encryption | bool
+  ansible.builtin.assert:
+    that:
+      - patroni_create_dump_encryption_public_key | default('', true) | string | trim | length > 0
+    fail_msg: >-
+      You turned on the encryption opt for dump, but didn't set encryption key.
+      Please set patroni_create_dump_encryption_public_key using Ansible Vault
+
+- name: Check backup encrytpion is set
+  when: patroni_create_pgbackrest_encryption | bool
+  ansible.builtin.assert:
+    that:
+      - patroni_create_pgbackrest_encryption_cipher_pass | default('', true) | string | trim | length > 0
+    fail_msg: >-
+      You turned on the encryption opt for backup, but didn't set encryption key.
+      Please set patroni_create_pgbackrest_encryption_cipher_pass using Ansible Vault
+
 - name: Recovery preflight
   when: patroni_create_recovery_mode | bool
   block:
@@ -120,7 +151,7 @@
       when: patroni_create_wipe_existing_cluster | bool
       ansible.builtin.command:
         argv:
-          - /usr/local/libexec/patroni/pgbackrest-wrapper
+          - /usr/bin/pgbackrest
           - --stanza={{ patroni_create_cluster_name }}
           - info
       become_user: postgres
@@ -134,7 +165,7 @@
         - patroni_create_wipe_existing_cluster | bool
       ansible.builtin.command:
         argv:
-          - /usr/local/libexec/patroni/pgbackrest-wrapper
+          - /usr/bin/pgbackrest
           - --stanza={{ patroni_create_cluster_name }}
           - --set={{ patroni_playbook_recovery_point }}
           - info

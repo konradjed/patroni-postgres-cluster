@@ -67,14 +67,6 @@
     - { src: "certs/postgres/pgsrv-{{ inventory_hostname }}.crt", dest_name: pgsrv.crt }
     - { src: "certs/postgres/pgsrv-{{ inventory_hostname }}.key", dest_name: pgsrv.key }
 
-- name: Install Patroni OpenBao wrapper
-  ansible.builtin.template:
-    src: openbao-wrappers/patroni-wrapper.j2
-    dest: /usr/local/libexec/patroni/patroni-wrapper
-    owner: root
-    group: postgres
-    mode: '0750'
-
 - name: Load softdog module now
   community.general.modprobe:
     name: softdog
