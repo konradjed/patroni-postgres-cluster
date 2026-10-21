@@ -73,3 +73,7 @@
 - name: Configure Alloy
   ansible.builtin.include_tasks: alloy.yml
   when: patroni_create_enable_alloy
+
+- name: Mark run as successful
+  ansible.builtin.set_fact:
+    patroni_playbook_success: true
