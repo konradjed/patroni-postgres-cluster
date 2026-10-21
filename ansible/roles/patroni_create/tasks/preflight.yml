@@ -127,6 +127,10 @@
       changed_when: false
       run_once: true
       delegate_to: "{{ patroni_create_recovery_node }}"
+      register: patroni_playbook_recovery_stanza_info
+      failed_when: >-
+        patroni_playbook_recovery_stanza_info.rc != 0 or
+        'status: error' in patroni_playbook_recovery_stanza_info.stdout
 
     - name: Verify existence of backup
       when:
@@ -142,3 +146,7 @@
       changed_when: false
       run_once: true
       delegate_to: "{{ patroni_create_recovery_node }}"
+      register: patroni_playbook_recovery_backup_info
+      failed_when: >-
+        patroni_playbook_recovery_backup_info.rc != 0 or
+        'status: error' in patroni_playbook_recovery_backup_info.stdout
