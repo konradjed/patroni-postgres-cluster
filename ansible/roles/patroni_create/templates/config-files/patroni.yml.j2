@@ -64,7 +64,7 @@ bootstrap:
               - hostssl all all 127.0.0.1/32 scram-sha-256
               - hostssl all all ::1/128 scram-sha-256
               - hostssl replication replicator 127.0.0.1/32 scram-sha-256
-              - hostssl postgres postgres {{ patroni_create_management_cidr }} scram-sha-256
+              - hostssl all postgres {{ patroni_create_management_cidr }} scram-sha-256
 {% for host in groups[patroni_create_inventory_group] %}
               - hostssl replication replicator {{ hostvars[host].ansible_host }}/32 scram-sha-256
 {% endfor %}

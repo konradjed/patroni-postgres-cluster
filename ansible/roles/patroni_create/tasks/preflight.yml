@@ -71,6 +71,7 @@
       - patroni_create_postgres_user_pass | default('', true) | string | trim | length > 0
       - patroni_create_replicator_user_pass | default('', true) | string | trim | length > 0
       - patroni_create_app_user_pass | default('', true) | string | trim | length > 0
+      - patroni_create_migration_user_pass | default('', true) | string | trim | length > 0
       - patroni_create_s3_access_key | default('', true) | string | trim | length > 0
       - patroni_create_s3_secret | default('', true) | string | trim | length > 0
     fail_msg: >-
