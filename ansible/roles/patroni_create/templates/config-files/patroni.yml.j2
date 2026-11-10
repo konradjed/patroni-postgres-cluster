@@ -64,6 +64,7 @@ bootstrap:
               - hostssl all all 127.0.0.1/32 scram-sha-256
               - hostssl all all ::1/128 scram-sha-256
               - hostssl replication replicator 127.0.0.1/32 scram-sha-256
+              - hostssl postgres postgres {{ patroni_create_management_cidr }} scram-sha-256
 {% for host in groups[patroni_create_inventory_group] %}
               - hostssl replication replicator {{ hostvars[host].ansible_host }}/32 scram-sha-256
 {% endfor %}
@@ -72,6 +73,9 @@ bootstrap:
 {% endfor %}
 {% for addr in patroni_create_app_cidrs %}
               - hostssl {{ patroni_create_app_db_name }} app_user {{ addr }} scram-sha-256
+{% endfor %}
+{% for addr in patroni_create_migration_cidrs %}
+              - hostssl {{ patroni_create_app_db_name }} {{ patroni_create_migration_user }} {{ addr }} scram-sha-256
 {% endfor %}
           pg_ident:
               - dumpmap postgres dumper

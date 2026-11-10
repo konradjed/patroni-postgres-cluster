@@ -8,6 +8,7 @@ patroni_create_inventory_group: psql
 
 # Firewall settings
 patroni_create_app_cidrs: []
+patroni_create_migration_cidrs: []
 patroni_create_management_cidr: ""
 patroni_create_firewall_zone: patroni
 patroni_create_firewall_ports:
@@ -61,12 +62,16 @@ patroni_create_postgres_max_replication_slots: 10
 patroni_create_postgres_max_wal_size: 10GB
 patroni_create_postgres_archive_timeout: 60s
 
+# Postgres users and passwords
 patroni_create_postgres_user_pass:
 
 patroni_create_replicator_user_pass:
 
 patroni_create_app_db_name: app
 patroni_create_app_user_pass:
+
+patroni_create_migration_user: flyway
+patroni_create_migration_user_pass:
 
 
 # Watchdog settings

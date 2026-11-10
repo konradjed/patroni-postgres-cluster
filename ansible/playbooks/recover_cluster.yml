@@ -15,7 +15,7 @@
         patroni_create_recovery_mode: true
         # Set only one recovery target below. If both values are set,
         # patroni_create_recovery_backup_id takes precedence.
-        patroni_create_recovery_backup_id: 20261021-181736F
+        patroni_create_recovery_backup_id: 20261022-162604F
         patroni_create_recovery_date:    # Format: "YYYY-MM-DD HH:MM:SS[+HH]", timezone offset recommended
         patroni_create_recovery_node: pg1
         patroni_create_recovery_db_checks: [app] # Optional: list of databases to verify after recovery - empty skips the check.

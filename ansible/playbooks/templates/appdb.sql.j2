@@ -3,14 +3,20 @@ BEGIN
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'app_user') THEN
     CREATE ROLE app_user LOGIN;
   END IF;
+  IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ patroni_create_migration_user }}') THEN
+    CREATE ROLE "{{ patroni_create_migration_user }}" LOGIN;
+  END IF;
   IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'dumper') THEN
     CREATE ROLE dumper LOGIN;
   END IF;
 END
 $do$;
 \getenv app_password PATRONI_APP_PASSWORD
+\getenv migration_password PATRONI_MIGRATION_PASSWORD
 ALTER ROLE app_user WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION
   PASSWORD :'app_password';
+ALTER ROLE "{{ patroni_create_migration_user }}" WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION
+  PASSWORD :'migration_password';
 ALTER ROLE dumper WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;
 GRANT pg_read_all_data TO dumper;
 
@@ -19,13 +25,14 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = '{{ patroni_create_app
 
 REVOKE CONNECT ON DATABASE {{ patroni_create_app_db_name }} FROM PUBLIC;
 GRANT CONNECT ON DATABASE {{ patroni_create_app_db_name }} TO app_user;
+GRANT CONNECT, CREATE ON DATABASE {{ patroni_create_app_db_name }} TO "{{ patroni_create_migration_user }}";
 GRANT CONNECT ON DATABASE {{ patroni_create_app_db_name }} TO dumper;
 
 \connect {{ patroni_create_app_db_name }}
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO app_user;
-
+GRANT USAGE ON SCHEMA public TO "{{ patroni_create_migration_user }}";
 CREATE TABLE IF NOT EXISTS public.ha_probe (
   probe_id    text PRIMARY KEY,
   client_name text NOT NULL,

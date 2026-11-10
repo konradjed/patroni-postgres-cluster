@@ -29,7 +29,7 @@
                 mode: '0600'
               no_log: true
 
-            - name: Load SQL file using application password from OpenBao
+            - name: Load SQL file using application password
               ansible.builtin.command:
                 argv:
                   - /usr/pgsql-18/bin/psql
@@ -38,6 +38,7 @@
                   - --file=/var/lib/pgsql/appdb.sql
               environment:
                 PATRONI_APP_PASSWORD: "{{ patroni_create_app_user_pass }}"
+                PATRONI_MIGRATION_PASSWORD: "{{ patroni_create_migration_user_pass }}"
               become_user: postgres
               changed_when: true
               diff: false

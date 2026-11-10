@@ -28,6 +28,16 @@
     permanent: true
     immediate: true
 
+- name: Allow Postgres management in patroni zone
+  ansible.posix.firewalld:
+    zone: "{{ patroni_create_firewall_zone }}"
+    rich_rule: >-
+      rule family="ipv4" source address="{{ patroni_create_management_cidr }}"
+      port port="5432" protocol="tcp" accept
+    state: enabled
+    permanent: true
+    immediate: true
+
 - name: Collect nodes ip addresses
   ansible.builtin.set_fact:
     patroni_playbook_nodes_ips: "{{ groups[patroni_create_inventory_group] | map('extract', hostvars, 'ansible_host') | list }}"
@@ -59,7 +69,7 @@
     - patroni_create_enable_alloy_ui
     - patroni_create_management_cidr | length > 0
 
-- name: Allow on access to PostgreSQL
+- name: Allow on access to PostgreSQL by app user
   ansible.posix.firewalld:
     zone: "{{ patroni_create_firewall_zone }}"
     rich_rule: >-
@@ -69,6 +79,17 @@
     permanent: true
     immediate: true
   loop: "{{ patroni_create_app_cidrs }}"
+
+- name: Allow on access to PostgreSQL by migration user
+  ansible.posix.firewalld:
+    zone: "{{ patroni_create_firewall_zone }}"
+    rich_rule: >-
+      rule family="ipv4" source address="{{ item }}"
+      port port="5432" protocol="tcp" accept
+    state: enabled
+    permanent: true
+    immediate: true
+  loop: "{{ patroni_create_migration_cidrs }}"
 
 - name: Check default zone
   ansible.builtin.command: firewall-cmd --get-default-zone
