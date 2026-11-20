@@ -3,7 +3,7 @@
 # defaults file for patroni
 
 # run config settings
-patroni_create_inventory_group: psql
+patroni_create_inventory_group: pg
 
 
 # Firewall settings
@@ -16,21 +16,6 @@ patroni_create_firewall_ports:
   - 2380
   - 5432
   - 8008
-
-
-# LUKS volumes settings
-patroni_create_volume_fstype: xfs
-patroni_create_data_volumes:
-  - name: pgdata
-    device:              # device id
-    path: /var/lib/pgsql
-    gib: 10
-    owner: postgres
-  - name: etcd
-    device:              # device id
-    path: /var/lib/etcd
-    gib: 5
-    owner: etcd
 
 
 # Patroni settings
@@ -72,7 +57,6 @@ patroni_create_app_user_pass:
 
 patroni_create_migration_user: flyway
 patroni_create_migration_user_pass:
-
 
 # Watchdog settings
 patroni_create_watchdog_mode: required

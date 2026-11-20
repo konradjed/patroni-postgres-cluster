@@ -8,7 +8,7 @@ patroni_create_vars_patroni_ssl: /etc/patroni/ssl
 patroni_create_vars_patroni_ssl_client: /etc/patroni/dcs-client
 patroni_create_vars_patroni_bin: /usr/bin/patroni
 patroni_create_vars_patroni_restart_svc_type: 'on-failure'
-patroni_create_vars_pgbackup_path: /var/lib/pgsql/archived
+patroni_create_vars_pgbackup_wal_path: /var/lib/pgsql/archived
 patroni_create_vars_postgres_data_dir: /var/lib/pgsql/18/data
 patroni_create_vars_postgres_main_dir: /var/lib/pgsql
 patroni_create_vars_postgres_socket: /var/run/postgresql
@@ -18,21 +18,4 @@ patroni_create_vars_pgbackrest_data_dir: /var/lib/pgbackrest
 patroni_create_vars_pgbackrest_log_dir: /var/log/pgbackrest
 patroni_create_vars_pgback_dumps_dir: "{{ patroni_create_vars_postgres_main_dir }}/pg_back/dumps"
 patroni_create_vars_pgback_config_dir: "/etc/pg_back"
-patroni_create_vars_postgres_volume_name: >-
-  {{
-    patroni_create_data_volumes
-    | selectattr('path', 'equalto', patroni_create_vars_postgres_main_dir)
-    | map(attribute='name')
-    | first
-  }}
-
-patroni_create_vars_etcd_volume_name: >-
-  {{
-    patroni_create_data_volumes
-    | selectattr('path', 'equalto', patroni_create_vars_etcd_data_dir)
-    | map(attribute='name')
-    | first
-  }}
-patroni_create_vars_openbao_cert_dir: /etc/openbao-agent/tls
-patroni_create_vars_openbao_config_dir: /etc/openbao-agent
 patroni_create_vars_alloy_config_dir: /etc/alloy

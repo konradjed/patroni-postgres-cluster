@@ -25,26 +25,6 @@
         - patroni-backup@incr.service
         - patroni-pgdump.service
 
-    - name: Ensure volume verification helper is installed
-      ansible.builtin.copy:
-        src: patroni-require-volume
-        dest: /usr/local/sbin/patroni-require-volume
-        owner: root
-        group: root
-        mode: '0755'
-
-    - name: Verify data volumes before destructive wipe
-      ansible.builtin.command:
-        argv:
-          - /usr/local/sbin/patroni-require-volume
-          - "{{ item.path }}"
-          - "{{ item.device }}"
-      changed_when: false
-      loop: "{{ patroni_create_data_volumes }}"
-      loop_control:
-        label: >-
-          {{ item.path }} <- {{ item.device }}
-
     - name: Check for existing Patroni config
       ansible.builtin.stat:
         path: "{{ patroni_create_vars_patroni_config_yaml }}"
@@ -99,7 +79,7 @@
         state: absent
       loop:
         - "{{ patroni_create_vars_postgres_data_dir }}/"
-        - "{{ patroni_create_vars_pgbackup_path }}/"
+        - "{{ patroni_create_vars_pgbackup_wal_path }}/"
 
     - name: Stop etcd before wiping
       ansible.builtin.systemd_service:
@@ -109,19 +89,7 @@
         - "'etcd.service' in ansible_facts.services"
         - ansible_facts.services['etcd.service'].status | default('') != 'not-found'
 
-    - name: Verify etcd volume before removing its contents
-      ansible.builtin.command:
-        argv:
-          - /usr/local/sbin/patroni-require-volume
-          - "{{ item.path }}"
-          - "{{ item.device }}"
-      loop: "{{ patroni_create_data_volumes }}"
-      loop_control:
-        label: "{{ item.path }} <- {{ item.device }}"
-      when: item.path == patroni_create_vars_etcd_data_dir
-      changed_when: false
-
-    - name: Find existing entries on the etcd volume
+    - name: Find existing entries in the etcd data directory
       ansible.builtin.find:
         paths: "{{ patroni_create_vars_etcd_data_dir }}"
         file_type: any
@@ -129,7 +97,7 @@
         recurse: false
       register: patroni_playbook_etcd_entries
 
-    - name: Remove existing entries from the etcd volume
+    - name: Remove existing entries from the etcd directory
       ansible.builtin.file:
         path: "{{ item.path }}"
         state: absent

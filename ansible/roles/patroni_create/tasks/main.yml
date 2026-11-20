@@ -2,8 +2,7 @@
 ---
 # tasks file for patroni
 
-# Validate required secrets, the supported operating system, and the structure
-# of all configured data-volume definitions before making host changes.
+# Validate required secrets and the supported operating system
 - name: Preflight
   ansible.builtin.include_tasks: preflight.yml
 
@@ -16,11 +15,6 @@
 # package-provided services that must not manage the cluster directly.
 - name: Prepare system
   ansible.builtin.include_tasks: prepare_hosts.yml
-
-# Validate the configured block devices, provision/open LUKS2 containers,
-# create filesystems and mount the PostgreSQL and etcd volumes.
-- name: Encrypt data volumes
-  ansible.builtin.include_tasks: volumes.yml
 
 # Apply the default-deny host firewall policy and allow only management,
 # application, and inter-node cluster traffic.

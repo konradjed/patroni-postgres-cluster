@@ -44,6 +44,14 @@
   diff: false
   no_log: true
 
+- name: Create main postgres directory
+  ansible.builtin.file:
+    path: "{{ patroni_create_vars_postgres_main_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+
 - name: Create postgres directories
   ansible.builtin.file:
     path: "{{ item }}"
@@ -53,7 +61,7 @@
     state: directory
   loop:
     - "{{ patroni_create_vars_postgres_data_dir }}/"
-    - "{{ patroni_create_vars_pgbackup_path }}/"
+    - "{{ patroni_create_vars_pgbackup_wal_path }}/"
     - "{{ patroni_create_vars_postgres_ssl }}/"
 
 - name: Copy SSL Certificates for Postgres

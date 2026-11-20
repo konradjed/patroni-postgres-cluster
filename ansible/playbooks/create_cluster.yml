@@ -3,6 +3,8 @@
   hosts: psql
   become: true
   any_errors_fatal: true
+  vars:
+    patroni_create_enable_alloy: false
   roles:
     - role: patroni_create
 

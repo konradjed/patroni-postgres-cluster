@@ -2,11 +2,12 @@
 
 The `patroni_create` role provisions a PostgreSQL 18 high-availability cluster
 on the hosts in the configured inventory group. It is called by
-`ansible/playbooks/create_cluster.yml`.
+`playbooks/create_cluster.yml`.
 
 **This version has no OpenBao integration or role-managed encryption at rest
-for PostgreSQL, WAL, or etcd data.** It still uses separate dedicated disks
-for PostgreSQL and etcd. TLS remains enabled. Encryption of pgBackRest backups
+for PostgreSQL, WAL, or etcd data.** PostgreSQL and etcd use directories on
+the hosts' existing filesystems; separate data disks are not required or
+managed by the role. TLS remains enabled. Encryption of pgBackRest backups
 and AGE logical dumps is optional and disabled by default.
 
 This role is intended for bootstrapping a cluster on new machines,
@@ -21,8 +22,9 @@ disruptive and does not update every initialization-only setting.
 > owners and the operators responsible for the database, storage, and backups
 > before `patroni_create_wipe_existing_cluster` is enabled.
 
-The role assumes full control of PostgreSQL and etcd data, dedicated data
-disks, firewalld, managed volume entries, and the related systemd units.
+The role assumes full control of PostgreSQL and etcd data directories,
+firewalld, and the related systemd units. Storage provisioning and mounting
+are managed outside the role.
 
 ## Table of contents
 
@@ -35,13 +37,13 @@ disks, firewalld, managed volume entries, and the related systemd units.
 - [Inventory](#inventory)
 - [Critical inputs before running the playbook](#critical-inputs-before-running-the-playbook)
   - [Secrets required before provisioning](#secrets-required-before-provisioning)
-  - [Data volumes required by preflight](#data-volumes-required-by-preflight)
+  - [Local storage](#local-storage)
 - [Role variables](#role-variables)
   - [Cluster and network](#cluster-and-network)
   - [Patroni high availability](#patroni-high-availability)
   - [etcd](#etcd)
   - [PostgreSQL and watchdog](#postgresql-and-watchdog)
-  - [Dedicated data volumes](#dedicated-data-volumes)
+  - [Cluster recreation](#cluster-recreation)
   - [Application database](#application-database)
   - [NetApp, pgBackRest, and dumps](#netapp-pgbackrest-and-dumps)
   - [Grafana Alloy](#grafana-alloy)
@@ -51,6 +53,7 @@ disks, firewalld, managed volume entries, and the related systemd units.
 - [Running the playbook](#running-the-playbook)
   - [Create a new cluster](#create-a-new-cluster)
   - [Reconfigure an existing cluster using the role](#reconfigure-an-existing-cluster-using-the-role)
+  - [Hosts previously using role-managed volumes](#hosts-previously-using-role-managed-volumes)
   - [Recreate an existing cluster](#recreate-an-existing-cluster)
   - [Recover a cluster from an existing backup](#recover-a-cluster-from-an-existing-backup)
 - [Configuration behavior on an existing cluster](#configuration-behavior-on-an-existing-cluster)
@@ -72,7 +75,7 @@ disks, firewalld, managed volume entries, and the related systemd units.
   - [Logical dump AGE key](#logical-dump-age-key)
 - [Validation after deployment](#validation-after-deployment)
   - [Cluster](#cluster)
-  - [Volumes](#volumes)
+  - [Data directories and free space](#data-directories-and-free-space)
   - [Backups](#backups)
   - [Alloy](#alloy)
 - [Limitations and assumptions](#limitations-and-assumptions)
@@ -80,16 +83,15 @@ disks, firewalld, managed volume entries, and the related systemd units.
 ## What the role configures
 
 - Percona Distribution for PostgreSQL 18, Patroni, etcd, and pgBackRest
-- dedicated XFS volumes on separate disks for PostgreSQL and etcd
-- persistent mounts with validation of the expected device before services
-  start
+- local PostgreSQL and etcd data directories with service-specific ownership
+  and permissions
 - a firewalld zone with a default `DROP` policy and explicit allow rules
 - mTLS for etcd and the Patroni REST API, plus TLS for PostgreSQL
 - synchronous quorum replication and a required `softdog` watchdog
 - pgBackRest physical backups and WAL archiving to NetApp
 - logical dumps produced by `pg_back`, optionally encrypted with an AGE public key
-- during normal deployment, an example application database, the `app_user`
-  and `dumper` roles, and the `public.ha_probe` table
+- during normal deployment, an example application database, the `app_user`,
+  migration, and `dumper` roles, and the `public.ha_probe` table
 - post-deployment etcd and Patroni health checks
 - an optional Grafana Alloy agent that sends metrics through Prometheus Remote
   Write
@@ -99,25 +101,24 @@ disks, firewalld, managed volume entries, and the related systemd units.
 The list follows the role's normal task order. Steps specific to wipe or
 recovery mode are marked explicitly.
 
-1. Validate the supported operating system, every data-volume definition,
-   required secret values, and encryption inputs when encryption is enabled.
+1. Validate the supported operating system, required secret values, and
+   encryption inputs when encryption is enabled.
    In recovery mode, check the selected backup ID or the date format and the
    recovery node before changing hosts.
-2. When wipe is explicitly enabled, stop backup timers and jobs, validate
-   mounts, and remove the DCS entry and local PostgreSQL, WAL, and etcd data.
+2. When wipe is explicitly enabled, stop backup timers and jobs and remove
+   the DCS entry and local PostgreSQL, WAL, and etcd data.
 3. Install repositories and packages and prepare system services.
 4. Import the internal CA into the system trust store.
-5. Validate block devices, create or reuse filesystems, and mount the volumes.
-6. Install the boot-time mount service.
-7. Configure firewalld, etcd, Patroni, PostgreSQL, and backups.
-8. In a normal deployment, start Patroni and check the stanza. In recovery
+5. Configure firewalld, create the data directories, and configure etcd,
+   Patroni, PostgreSQL, and backups.
+6. In a normal deployment, start Patroni and check the stanza. In recovery
    mode, restore the backup on one node, complete PostgreSQL recovery, start
    Patroni, and join the replicas. Ask the operator whether to reinitialize
    the replicas.
-9. Wait for a leader, streaming replicas, and a synchronous or quorum standby.
-10. In recovery mode, take a new full backup.
-11. Enable backup timers, then optionally configure Grafana Alloy.
-12. Only during normal deployment, the playbook post-tasks create or update
+7. Wait for a leader, streaming replicas, and a synchronous or quorum standby.
+8. In recovery mode, take a new full backup.
+9. Enable backup timers, then optionally configure Grafana Alloy.
+10. Only during normal deployment, the playbook post-tasks create or update
     the example application database on the leader.
 
 ## Requirements
@@ -134,8 +135,8 @@ running Rocky Linux 9. Each machine is a member of all three cluster layers:
 The nodes should be dedicated to this cluster and must not host another
 PostgreSQL or etcd workload. Each node requires:
 
-- a separate dedicated disk for PostgreSQL data
-- a separate dedicated disk for etcd data
+- sufficient space on the filesystems containing the PostgreSQL and etcd
+  data directories, including space for WAL and temporary logical dumps
 - network connectivity to the other cluster members
 - hostnames and addresses that match the supplied certificates.
 
@@ -159,11 +160,11 @@ Remote Write endpoint.
 ### Ansible controller
 
 - Ansible 2.20.1 or newer, as declared in the role metadata
-- collections listed in `ansible/collections/requirements.yml`
+- collections listed in `collections/requirements.yml`
 - SSH access and privilege escalation on every target host
 - all required certificates and keys staged before execution.
 
-Install the collections from the `ansible` directory:
+Install the collections from the repository root:
 
 ```bash
 ansible-galaxy collection install -r collections/requirements.yml
@@ -178,9 +179,8 @@ The role uses, among others:
 
 - Rocky Linux 9 with systemd
 - access to the configured package repositories
-- support for XFS
 - the ability to load the `softdog` module
-- dedicated disks matching `patroni_create_data_volumes`
+- writable local storage for the configured data directories
 - HTTPS access to the configured NetApp bucket.
 
 The topology is designed for exactly three PostgreSQL/etcd nodes. Hostnames
@@ -191,7 +191,7 @@ and `ansible_host` addresses must match the supplied certificates.
 ```yaml
 servers:
   children:
-    psql:
+    pg:
       hosts:
         pg1:
           ansible_host: 192.168.172.101
@@ -213,18 +213,18 @@ Every member of `patroni_create_inventory_group` is used when generating:
 
 > [!IMPORTANT]
 > The role intentionally stops cluster services, manages the host firewall,
-> and creates filesystems on empty devices declared in
-> `patroni_create_data_volumes`. Wipe removes local cluster data. Review all
-> values for every host before running the playbook.
+> and manages the configured data directories. Wipe removes local cluster
+> data. Review all values for every host before running the playbook.
 
 ### Secrets required before provisioning
 
 Supply the following values as Ansible variables, with passwords and credentials
-protected using Ansible Vault, for example in `inventory/group_vars/psql/vault.yml`:
+protected using Ansible Vault, for example in `inventory/group_vars/pg/vault.yml`:
 
 - `patroni_create_postgres_user_pass`
 - `patroni_create_replicator_user_pass`
 - `patroni_create_app_user_pass`
+- `patroni_create_migration_user_pass`
 - `patroni_create_s3_access_key`
 - `patroni_create_s3_secret`
 - `patroni_create_pgbackrest_encryption_cipher_pass` when repository encryption is enabled
@@ -239,39 +239,21 @@ passphrase are checked only when their respective encryption options are
 enabled. These checks confirm that values are supplied, not that passwords
 are correct or that the credentials grant the required NetApp access.
 
-### Data volumes required by preflight
+### Local storage
 
-`patroni_create_data_volumes` is required on every cluster host. Preflight
-checks that each item provides a non-empty `name`, `device`, and `path`, a
-positive `gib`, and a non-empty `owner`. The volume stage then verifies that the
-device exists, is a whole disk, and matches the declared size within a 2%
-tolerance.
+The role creates `/var/lib/pgsql` and `/var/lib/etcd` with ownership
+`postgres:postgres` and `etcd:etcd`, respectively, and mode `0700`. It also
+creates the PostgreSQL data, local WAL archive, TLS, and backup working
+directories listed under [Internal path variables](#internal-path-variables).
 
-Use stable whole-disk paths under `/dev/disk/by-id/`. Do not use kernel-order
-names such as `/dev/nvme0n2` or partitions ending in `-partN`.
+These are directories on the hosts' existing filesystems. The role does not
+format disks, create or mount filesystems, manage `/etc/fstab`, or require
+these paths to be separate mountpoints. If storage is mounted separately by
+the infrastructure, make it available before running the role and before
+starting cluster services after a reboot.
 
-Example host-specific configuration:
-
-```yaml
-patroni_create_data_volumes:
-  - name: pgdata
-    device: /dev/disk/by-id/<postgres-device-id>
-    path: /var/lib/pgsql
-    gib: 100
-    owner: postgres
-  - name: etcd
-    device: /dev/disk/by-id/<etcd-device-id>
-    path: /var/lib/etcd
-    gib: 20
-    owner: etcd
-```
-
-> [!CAUTION]
-> The role creates a filesystem on an empty disk with `force: false` and
-> reuses a matching existing filesystem. It does not convert existing LUKS
-> containers. A valid path and matching size do not prove that the disk
-> contains no valuable data. Verify every device identifier against the
-> infrastructure inventory.
+Check capacity and free space before deployment or recovery. Preflight does
+not validate storage devices, mount sources, or available disk space.
 
 ## Role variables
 
@@ -281,9 +263,10 @@ patroni_create_data_volumes:
 | --- | --- | --- |
 | `patroni_create_cluster_name` | `pg_cluster` | Patroni scope, PostgreSQL cluster name, and pgBackRest stanza name. |
 | `patroni_create_pg_token` | `PostgreSQL_HA_Cluster` | Token used when forming the initial etcd cluster. |
-| `patroni_create_inventory_group` | `psql` | Inventory group containing all Patroni and etcd nodes. |
+| `patroni_create_inventory_group` | `pg` | Inventory group containing all Patroni and etcd nodes. |
 | `patroni_create_management_cidr` | empty | Source CIDR allowed to use SSH and the optional Alloy UI. Use `/32` for one address. |
 | `patroni_create_app_cidrs` | `[]` | CIDRs allowed to connect as `app_user` on TCP 5432. Matching `pg_hba` entries are generated. |
+| `patroni_create_migration_cidrs` | `[]` | CIDRs allowed to connect as the migration user on TCP 5432. Matching firewall and `pg_hba` rules are generated. |
 | `patroni_create_firewall_zone` | `patroni` | Managed firewalld zone with a `DROP` target, set as the default zone. |
 | `patroni_create_firewall_ports` | `2379`, `2380`, `5432`, `8008` | TCP ports allowed between nodes: etcd client, etcd peer, PostgreSQL, and Patroni REST API. |
 
@@ -330,39 +313,15 @@ configuration.
 | `patroni_create_watchdog_device` | `/dev/watchdog` | Watchdog device used by Patroni. |
 | `patroni_create_watchdog_safety_margin` | `5` | Safety margin in seconds subtracted from the Patroni leader-lock TTL when setting the watchdog timeout. |
 
-### Dedicated data volumes
+### Cluster recreation
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `patroni_create_volume_fstype` | `xfs` | Filesystem created directly on each dedicated device. |
-| `patroni_create_data_volumes` | See below | Dedicated volumes. Each item defines a stable `device`, volume `name`, mount `path`, expected `gib`, and `owner`. |
-| `patroni_create_wipe_existing_cluster` | `false` | When `true`, removes the DCS entry and PostgreSQL, local WAL, and etcd data on verified mounted volumes. Existing filesystems are retained. It does not remove the remote backup repository. |
+| `patroni_create_wipe_existing_cluster` | `false` | When `true`, attempts to remove the DCS entry, removes the PostgreSQL data directory and local WAL archive, and clears the etcd data directory. It does not remove the remote backup repository. |
 
-Default layout:
-
-```yaml
-patroni_create_volume_fstype: xfs
-patroni_create_data_volumes:
-  - name: pgdata
-    device:
-    path: /var/lib/pgsql
-    gib: 10
-    owner: postgres
-  - name: etcd
-    device:
-    path: /var/lib/etcd
-    gib: 5
-    owner: etcd
-```
-
-Empty `device` values are deliberate. Each host must provide its own stable
-`/dev/disk/by-id/...` path. The role does not discover a target disk by size.
-
-For a new deployment, use empty dedicated whole disks. The role creates the
-configured filesystem directly on each device with `force: false` and reuses
-an existing matching filesystem. It mounts the devices through `/etc/fstab`
-and installs `patroni-mount-volumes.service` for boot-time mounting. Existing
-LUKS containers are not converted or unlocked.
+Wipe operates on the configured directory paths without checking their
+backing devices or requiring separate mountpoints. Review the paths and the
+data they contain before enabling it.
 
 ### Application database
 
@@ -370,10 +329,13 @@ LUKS containers are not converted or unlocked.
 | --- | --- | --- |
 | `patroni_create_app_user_pass` | empty | Password applied to `app_user` by the normal deployment post-tasks. Supply through Ansible Vault. |
 | `patroni_create_app_db_name` | `app` | Database created after the cluster becomes healthy. It is also used by logical dumps and access rules. |
+| `patroni_create_migration_user` | `flyway` | Migration login created by the normal deployment post-tasks. |
+| `patroni_create_migration_user_pass` | empty | Password applied to the migration login by the normal deployment post-tasks. Supply through Ansible Vault. |
 
 The final SQL creates or updates:
 
 - `app_user` with the password supplied in `patroni_create_app_user_pass`
+- the migration login with the password supplied in `patroni_create_migration_user_pass`
 - the local peer-authenticated `dumper` role
 - the application database
 - the `public.ha_probe` table.
@@ -402,7 +364,6 @@ The final SQL creates or updates:
 | `patroni_create_pgbackrest_log_level_console` | `info` | pgBackRest console log level. |
 | `patroni_create_pgbackrest_log_level_file` | `detail` | pgBackRest file log level. |
 | `patroni_create_pgbackrest_archive_timeout` | `60` | Time in seconds pgBackRest waits for the required WAL segment to reach the archive. |
-
 | `patroni_create_s3_access_key` | empty | NetApp access key shared by pgBackRest and logical dumps. |
 | `patroni_create_s3_secret` | empty | Matching NetApp secret key. Supply through Ansible Vault. |
 | `patroni_create_pgbackrest_encryption` | `false` | Enables AES-256-CBC encryption for the pgBackRest repository. |
@@ -423,7 +384,7 @@ There is no runtime secret lookup or external secret agent.
 
 Backup encryption and dump encryption are independent and disabled by
 default. These options protect backup objects, not the live PostgreSQL or
-etcd volumes. For an existing encrypted pgBackRest repository, retain the
+etcd data. For an existing encrypted pgBackRest repository, retain the
 original encryption setting and passphrase.
 
 ### Grafana Alloy
@@ -465,16 +426,16 @@ not the normal role configuration interface.
 
 | Variable | Value | Purpose |
 | --- | --- | --- |
-| `patroni_create_vars_etcd_data_dir` | `/var/lib/etcd` | etcd data directory and mountpoint. |
+| `patroni_create_vars_etcd_data_dir` | `/var/lib/etcd` | etcd data directory. |
 | `patroni_create_vars_etcd_ssl` | `/etc/etcd/ssl` | etcd certificate directory. |
 | `patroni_create_vars_patroni_config_yaml` | `/etc/patroni/patroni.yml` | Patroni configuration file. |
 | `patroni_create_vars_patroni_ssl` | `/etc/patroni/ssl` | Patroni REST certificate and key. |
 | `patroni_create_vars_patroni_ssl_client` | `/etc/patroni/dcs-client` | Patroni client certificate for etcd. |
 | `patroni_create_vars_patroni_bin` | `/usr/bin/patroni` | Patroni executable. |
 | `patroni_create_vars_patroni_restart_svc_type` | `on-failure` | Patroni service restart policy. |
-| `patroni_create_vars_postgres_main_dir` | `/var/lib/pgsql` | PostgreSQL parent directory and mountpoint. |
+| `patroni_create_vars_postgres_main_dir` | `/var/lib/pgsql` | PostgreSQL parent directory. |
 | `patroni_create_vars_postgres_data_dir` | `/var/lib/pgsql/18/data` | PostgreSQL data directory. |
-| `patroni_create_vars_pgbackup_path` | `/var/lib/pgsql/archived` | Local archive removed during wipe. |
+| `patroni_create_vars_pgbackup_wal_path` | `/var/lib/pgsql/archived` | Local archive directory created by the role and removed during wipe. Active WAL archiving uses pgBackRest. |
 | `patroni_create_vars_postgres_socket` | `/var/run/postgresql` | PostgreSQL Unix socket directory. |
 | `patroni_create_vars_postgres_bin` | `/usr/pgsql-18/bin` | PostgreSQL binary directory. |
 | `patroni_create_vars_postgres_ssl` | `/var/lib/pgsql/18/ssl` | PostgreSQL server certificate directory. |
@@ -512,7 +473,6 @@ Files consumed by the role:
 
 ```text
 files/
-├── patroni-require-volume
 └── certs/
     ├── ca/
     │   └── ca.crt
@@ -537,7 +497,6 @@ files/
 | `certs/patroni/patroni-<host>.crt/.key` | Installed under `/etc/patroni/ssl` for the Patroni REST API and local leader checks. |
 | `certs/dcs-client/dcsclient-<host>.crt/.key` | Installed under `/etc/patroni/dcs-client` as Patroni's client identity for etcd. |
 | `certs/postgres/pgsrv-<host>.crt/.key` | Installed as `pgsrv.crt` and `pgsrv.key` under `/var/lib/pgsql/18/ssl` for PostgreSQL TLS. |
-| `patroni-require-volume` | Installed as `/usr/local/sbin/patroni-require-volume`. Validates the mountpoint and expected block device before etcd and Patroni start. |
 
 Certificate requirements:
 
@@ -560,7 +519,7 @@ hosts.
 
 ## Running the playbook
 
-Run commands from the `ansible` directory.
+Run commands from the repository root.
 
 ### Create a new cluster
 
@@ -571,21 +530,19 @@ ansible-playbook -i inventory/servers.yml playbooks/create_cluster.yml --ask-vau
 With the default `patroni_create_wipe_existing_cluster: false`, the wipe block
 is skipped. The role then:
 
-1. validates the system, volumes, and enabled encryption inputs
+1. validates the system, required secrets, and enabled encryption inputs
 2. installs packages and disables conflicting package-provided services
-3. validates devices, creates or reuses filesystems, and mounts the volumes
-4. installs the mount service
-5. configures the firewall, etcd, Patroni, PostgreSQL, and backups
-6. starts the cluster and validates the leader and replicas
-7. starts timers and optionally configures Alloy
-8. creates the application database on the leader.
+3. creates data directories and configures the firewall, etcd, Patroni,
+   PostgreSQL, and backups
+4. starts the cluster and validates the leader and replicas
+5. starts timers and optionally configures Alloy
+6. creates the application database on the leader.
 
 > [!CAUTION]
 > `patroni_create_wipe_existing_cluster: false` disables only the explicit
-> cluster-data wipe. It does not make preparation of a new disk
-> non-destructive. Empty devices receive a new filesystem. Existing matching
-> filesystems are reused with `force: false`. New deployments require
-> dedicated empty disks. Existing LUKS containers require separate preparation.
+> cluster-data wipe. The role still stops services and rewrites configuration.
+> For a new cluster, use hosts without existing PostgreSQL or etcd data at the
+> configured paths. Storage is not formatted or mounted by the role.
 
 ### Reconfigure an existing cluster using the role
 
@@ -620,6 +577,19 @@ new cluster is created or when the role is deliberately run with
 PostgreSQL and etcd data and must not be used as a routine configuration
 method.
 
+### Hosts previously using role-managed volumes
+
+This version does not remove an existing `patroni-mount-volumes.service`,
+its helper scripts, or the old entries in `/etc/fstab`. Removing their source
+files from the role does not clean up previously configured hosts.
+
+Before reusing those hosts, plan storage migration during a maintenance
+window. Preserve existing data and backups, decide which filesystem will
+hold each data directory, and update the old mount configuration and service
+outside this role. Reapplying the role does not move data from a mounted disk
+to the root filesystem. Do not detach a data disk until its data has been
+migrated or deliberately discarded as part of cluster recreation.
+
 ### Recreate an existing cluster
 
 > [!CAUTION]
@@ -644,16 +614,13 @@ With wipe enabled, the playbook:
 
 1. stops and disables full, incremental, and logical backup timers
 2. stops active backup jobs
-3. installs the volume verification helper
-4. verifies that every data path is a mountpoint backed by its
-   configured `device`. An invalid state stops the wipe
-5. attempts to read the current cluster state and leader
-6. stops Patroni on every selected host
-7. attempts to remove the Patroni scope from DCS through `patronictl remove`
-8. removes the PostgreSQL data directory and local WAL archive
-9. stops etcd, verifies its mount, and removes the contents of its volume
-10. continues through normal provisioning, retaining the filesystems and
-    creating the cluster.
+3. attempts to read the current cluster state and leader
+4. stops Patroni on every selected host
+5. attempts to remove the Patroni scope from DCS through `patronictl remove`
+6. removes the PostgreSQL data directory and local WAL archive
+7. stops etcd and removes the contents of its data directory
+8. continues through normal provisioning, recreating the required directories
+   and creating the cluster.
 
 Wipe by itself does not:
 
@@ -663,17 +630,18 @@ Wipe by itself does not:
 - automatically rotate passwords, certificates, or backup secrets.
 
 > [!CAUTION]
-> 🔴 **VERIFY STORAGE BEFORE CONTINUING.** The role automatically validates
-> devices before deletion, but the operator should also verify mounts before a
-> planned recreation:
+> 🔴 **VERIFY STORAGE BEFORE CONTINUING.** The role does not validate
+> devices or mountpoints before deletion. Before a planned
+> recreation, review the configured data paths and confirm that their local
+> contents may be destroyed. Inspect the filesystems containing those paths:
 >
 > ```bash
 > findmnt -no SOURCE --target /var/lib/pgsql
 > findmnt -no SOURCE --target /var/lib/etcd
 > ```
 >
-> Expected sources are the host's configured PostgreSQL and etcd devices.
-> The guard resolves symlinks before comparing device paths.
+> These paths may share the root filesystem. Separate PostgreSQL and etcd
+> devices are not required.
 
 > [!CAUTION]
 > 🔴 **REVIEW THE BACKUP REPOSITORY.** Recreating PostgreSQL produces a new
@@ -730,7 +698,7 @@ confirm the recovered data and cluster state.
    coverage for a date or completeness of the backup chain. The operator
    must choose and validate the recovery point.
 3. Prepare the complete PostgreSQL cluster host group, connectivity,
-   privileges, certificates, disks, and package repository access. Hosts
+   privileges, certificates, local storage, and package repository access. Hosts
    must reach the existing stanza and the same NetApp objects, with the
    correct endpoint, bucket, prefix, and stanza name. Matching repository
    credentials, the shared CA, and the original repository passphrase when
@@ -740,9 +708,10 @@ confirm the recovered data and cluster state.
    from application traffic and stop its Patroni and backup jobs, so it cannot
    accept writes or use the same stanza in parallel. Use
    `wipe=true` for existing hosts with a damaged cluster. Before running,
-   confirm that the selected volumes are the intended mounted volumes and
-   that their local state may be destroyed. Use `wipe=false` only for new
-   hosts without existing PostgreSQL and etcd data. Empty disks receive a new filesystem even with `wipe=false`.
+   confirm that the configured data directories contain the intended cluster
+   state and that this local state may be destroyed. Use `wipe=false` only
+   for new hosts without existing PostgreSQL and etcd data. Provision any
+   required storage outside the role before recovery.
 5. Select `patroni_create_recovery_node`, the first restored node and future
    leader. Its default is `pg1`. Optionally set
    `patroni_create_recovery_db_checks` to a list of database names. By
@@ -910,6 +879,7 @@ The role creates the configured zone, applies a `DROP` target, and allows:
 - SSH from `patroni_create_management_cidr`
 - cluster ports between all nodes
 - PostgreSQL from `patroni_create_app_cidrs`
+- PostgreSQL from `patroni_create_migration_cidrs`
 - optionally, the Alloy UI on TCP 12345 from
   `patroni_create_management_cidr`.
 
@@ -921,7 +891,7 @@ intentional. An incorrect management CIDR can block SSH access.
 Target startup flow:
 
 ```text
-patroni-mount-volumes.service
+network-online.target
         |
         v
 etcd.service
@@ -930,11 +900,11 @@ etcd.service
 percona-patroni.service
 ```
 
-`patroni-mount-volumes.service` mounts the dedicated filesystems using
-`/etc/fstab`. The etcd and Patroni units additionally run
-`patroni-require-volume`, so they do not start against a directory on the
-root filesystem instead of the expected device. Device symlinks are resolved
-before comparison.
+Both services are ordered after `network-online.target`, and Patroni requires
+and starts after `etcd.service`. The role creates their data directories
+before starting the services. There is no role-managed mount service or
+pre-start check of storage devices. Any externally managed storage must be
+available before the services start.
 
 Patroni creates `/run/patroni` and `/run/postgresql` through
 `RuntimeDirectory`, ensuring that the socket directory exists after a host
@@ -1111,13 +1081,19 @@ sudo -u postgres patronictl -c /etc/patroni/patroni.yml list
 sudo systemctl status etcd percona-patroni --no-pager -l
 ```
 
-### Volumes
+### Data directories and free space
 
 ```bash
-findmnt /var/lib/pgsql
-findmnt /var/lib/etcd
-sudo systemctl status patroni-mount-volumes.service --no-pager -l
+sudo stat -c '%U:%G %a %n' \
+  /var/lib/pgsql /var/lib/pgsql/18/data /var/lib/etcd
+df -h /var/lib/pgsql /var/lib/etcd
+findmnt --target /var/lib/pgsql
+findmnt --target /var/lib/etcd
 ```
+
+The directories should be owned by their service accounts with mode `0700`.
+`findmnt --target` reports the containing filesystem; the paths do not need
+to be separate mountpoints.
 
 ### Backups
 
@@ -1147,7 +1123,11 @@ after restarting each host.
   and Patroni/PostgreSQL on all selected nodes
 - a normal rerun does not update Patroni `bootstrap.dcs`, `initdb`, or existing
   etcd membership state
-- it does not convert existing LUKS volumes or encrypted PostgreSQL tables
+- it does not provision or mount storage, validate backing devices or free
+  space, or migrate existing data between filesystems
+- it does not clean up mount services, helper scripts, or `/etc/fstab` entries
+  left by earlier versions of the role
+- it does not configure storage encryption or encrypted PostgreSQL tables
 - it does not automatically rotate secrets
 - it does not remove remote backups during wipe
 - it restores data only when `patroni_create_recovery_mode=true` and a recovery
@@ -1161,5 +1141,5 @@ after restarting each host.
   attempt before post-tasks finish
 - the local `pg_back` package is installed with GPG signature checking
   disabled
-- production backup intervals, retention, and disk sizes must be adjusted to
-  the environment requirements.
+- production backup intervals, retention, and storage capacity must be
+  adjusted to the environment requirements.
