@@ -188,7 +188,7 @@
     argv:
       - patronictl
       - -c
-      - /etc/patroni/patroni.yml
+      - "{{ patroni_create_vars_patroni_config_yaml }}"
       - reinit
       - "{{ patroni_create_cluster_name }}"
       - "{{ item }}"
@@ -196,7 +196,7 @@
       - --wait
   become_user: postgres
   loop: "{{ groups[patroni_create_inventory_group] }}"
-  when: 
+  when:
     - item != patroni_create_recovery_node
     - patroni_playbook_reinit_decision.user_input | trim | upper == 'REINIT'
   delegate_to: "{{ patroni_create_recovery_node }}"

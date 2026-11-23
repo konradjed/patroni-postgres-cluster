@@ -10,9 +10,9 @@
   roles:
     - role: patroni_create
       vars:
-        patroni_create_pgbackrest_encryption: true
-        patroni_create_dump_encryption: true
-        patroni_create_recovery_mode: true
+        patroni_create_pgbackrest_encryption: false
+        patroni_create_dump_encryption: false
+        patroni_create_recovery_mode: false
         # Set only one recovery target below. If both values are set,
         # patroni_create_recovery_backup_id takes precedence.
         patroni_create_recovery_backup_id: 20261022-162604F

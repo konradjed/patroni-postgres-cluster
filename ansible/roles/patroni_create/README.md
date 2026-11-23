@@ -43,6 +43,7 @@ are managed outside the role.
   - [Patroni high availability](#patroni-high-availability)
   - [etcd](#etcd)
   - [PostgreSQL and watchdog](#postgresql-and-watchdog)
+  - [Additional client access rules](#additional-client-access-rules)
   - [Cluster recreation](#cluster-recreation)
   - [Application database](#application-database)
   - [NetApp, pgBackRest, and dumps](#netapp-pgbackrest-and-dumps)
@@ -312,6 +313,53 @@ configuration.
 | `patroni_create_watchdog_mode` | `required` | Patroni watchdog mode. `required` prevents the node from becoming primary when the watchdog is unavailable. |
 | `patroni_create_watchdog_device` | `/dev/watchdog` | Watchdog device used by Patroni. |
 | `patroni_create_watchdog_safety_margin` | `5` | Safety margin in seconds subtracted from the Patroni leader-lock TTL when setting the watchdog timeout. |
+
+### Additional client access rules
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `patroni_create_pg_hba_additional` | `[]` | Additional HBA rules appended to `bootstrap.dcs.postgresql.pg_hba`. Each non-local rule also adds an IPv4 firewalld rule allowing its source to reach TCP 5432. |
+
+Example configuration in `inventory/group_vars/pg/vars.yml`:
+
+```yaml
+patroni_create_pg_hba_additional:
+  - type: hostssl
+    database: test
+    user: test
+    address: 192.168.22.3/32
+    method: scram-sha-256
+```
+
+Each item specifies `type`, `database`, `user`, and `method`. Network rules
+also require `address`. For `type: local`, omit `address`; the role creates
+no firewall rule for a Unix socket connection. These entries control access;
+they do not create the specified database or login role.
+
+The current firewall integration supports IPv4 addresses and networks in
+CIDR notation only. For network rules, use `0.0.0.0/0` instead of the HBA
+address keyword `all` to match all IPv4 clients. This also opens TCP 5432 to
+all IPv4 sources in the managed firewall zone; HBA authentication still
+applies. It does not allow IPv6 clients.
+
+Hostnames such as `client.example.com` are not supported by this role's
+firewall integration, even though PostgreSQL accepts hostnames in HBA.
+IPv6 addresses and the HBA address keywords `samehost` and `samenet` are
+also unsupported by the current firewall rules. These restrictions apply
+to `address`; the `database` and `user` fields may still use `all`.
+
+Use `hostssl` to require TLS. The type `host` matches both TLS and non-TLS
+connections. Rules are evaluated in order, and the first matching HBA rule
+is used. Additional entries are appended after the built-in rules, so they
+cannot override an earlier matching entry, including `local all all peer`.
+
+These HBA entries are applied when a new cluster is initialized. On an
+existing cluster, update the active HBA list through `patronictl edit-config`
+or the Patroni REST API; rerunning the role does not update `bootstrap.dcs`
+settings already stored in the DCS. The firewall tasks still apply the
+configured source rules during a rerun. Removing an item from the list does
+not automatically delete a previously installed firewall rule; remove that
+rule explicitly when revoking network access.
 
 ### Cluster recreation
 
@@ -880,8 +928,14 @@ The role creates the configured zone, applies a `DROP` target, and allows:
 - cluster ports between all nodes
 - PostgreSQL from `patroni_create_app_cidrs`
 - PostgreSQL from `patroni_create_migration_cidrs`
+- PostgreSQL from the IPv4 `address` of each non-local entry in
+  `patroni_create_pg_hba_additional`
 - optionally, the Alloy UI on TCP 12345 from
   `patroni_create_management_cidr`.
+
+Additional HBA entries of type `local` do not open a port. Other additional
+entries must use an IPv4 address or CIDR network as described in
+[Additional client access rules](#additional-client-access-rules).
 
 It then sets the managed zone as the host default. This default-deny policy is
 intentional. An incorrect management CIDR can block SSH access.

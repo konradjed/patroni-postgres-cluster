@@ -20,8 +20,8 @@ etcd3:
     hosts: {% for host in groups[patroni_create_inventory_group] %}{{ hostvars[host].ansible_host }}:2379{% if not loop.last %},{% endif %}{% endfor +%}
     protocol: https
     cacert: /etc/pki/ca-trust/source/anchors/patroni-intra-ca.crt
-    cert: {{ patroni_create_vars_patroni_ssl_client }}/dcsclient-{{ inventory_hostname }}.crt
-    key: {{ patroni_create_vars_patroni_ssl_client }}/dcsclient-{{ inventory_hostname }}.key
+    cert: {{ patroni_create_vars_patroni_dcs_client }}/dcsclient-{{ inventory_hostname }}.crt
+    key: {{ patroni_create_vars_patroni_dcs_client }}/dcsclient-{{ inventory_hostname }}.key
 
 bootstrap:
   dcs:
@@ -76,6 +76,9 @@ bootstrap:
 {% endfor %}
 {% for addr in patroni_create_migration_cidrs %}
               - hostssl {{ patroni_create_app_db_name }} {{ patroni_create_migration_user }} {{ addr }} scram-sha-256
+{% endfor %}
+{% for element in patroni_create_pg_hba_additional %}
+              - {{ element.type }} {{ element.database }} {{ element.user }}{% if element.type != 'local' %} {{ element.address }}{% endif %} {{ element.method }}
 {% endfor %}
           pg_ident:
               - dumpmap postgres dumper

@@ -8,9 +8,9 @@
     group: postgres
     mode: '0755'
   loop:
-    - /etc/patroni/
-    - "{{ patroni_create_vars_patroni_ssl_client }}/"
-    - "{{ patroni_create_vars_patroni_ssl }}/"
+    - "{{ patroni_create_vars_patroni_config_dir }}"
+    - "{{ patroni_create_vars_patroni_dcs_client }}"
+    - "{{ patroni_create_vars_patroni_ssl }}"
 
 - name: Copy SSL Certificates for Patroni server
   ansible.builtin.copy:
@@ -26,7 +26,7 @@
 - name: Copy SSL Certificates for Patroni dcs client
   ansible.builtin.copy:
     src: "{{ item }}"
-    dest: "{{ patroni_create_vars_patroni_ssl_client }}"
+    dest: "{{ patroni_create_vars_patroni_dcs_client }}"
     mode: '0600'
     owner: postgres
     group: postgres
@@ -37,7 +37,7 @@
 - name: Copy template patroni config
   ansible.builtin.template:
     src: config-files/patroni.yml.j2
-    dest: /etc/patroni/patroni.yml
+    dest: "{{ patroni_create_vars_patroni_config_yaml }}"
     mode: '0600'
     owner: postgres
     group: postgres

@@ -1,31 +1,34 @@
 ---
 
-- name: Create etcd data directory
+- name: Create etcd data and config directories
   ansible.builtin.file:
-    path: "{{ patroni_create_vars_etcd_data_dir }}"
+    path: "{{ item }}"
     state: directory
     owner: etcd
     group: etcd
     mode: '0700'
+  loop:
+    - "{{ patroni_create_vars_etcd_data_dir }}"
+    - "{{ patroni_create_vars_etcd_config_dir }}"
 
 - name: Copy etcd config
   ansible.builtin.template:
     src: config-files/etcd.conf.yaml.j2
-    dest: /etc/etcd/etcd.conf.yaml
+    dest: "{{ patroni_create_vars_etcd_config_dir }}/etcd.conf.yaml"
     mode: '0644'
     owner: etcd
     group: etcd
 
 - name: Change ownership and permissions
   ansible.builtin.file:
-    path: /etc/etcd
+    path: "{{ patroni_create_vars_etcd_config_dir }}"
     owner: etcd
     group: etcd
     mode: '0700'
 
 - name: Change ownership and permissions for ssl
   ansible.builtin.file:
-    path: /etc/etcd/ssl
+    path: "{{ patroni_create_vars_etcd_ssl }}"
     state: directory
     owner: etcd
     group: etcd

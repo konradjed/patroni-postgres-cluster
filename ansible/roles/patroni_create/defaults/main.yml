@@ -58,6 +58,18 @@ patroni_create_app_user_pass:
 patroni_create_migration_user: flyway
 patroni_create_migration_user_pass:
 
+patroni_create_pg_hba_additional: []
+# Additional HBA rules are appended after the built-in rules.
+# For non-local rules, address must be an IPv4 address or network in CIDR notation.
+# Use "0.0.0.0/0" instead of "all" to allow all IPv4 sources through the firewall.
+# Hostnames are not supported by this role's firewall integration, even though
+# PostgreSQL HBA supports them. IPv6 and HBA address keywords (samehost, samenet)
+# are also unsupported by the current firewall rules.
+# For type "local", omit address; no firewall rule is created.
+# Example:
+# patroni_create_pg_hba_additional:
+#   - { type: "hostssl", database: "test", user: "test", address: "192.168.22.3/32", method: "scram-sha-256" }
+
 # Watchdog settings
 patroni_create_watchdog_mode: required
 patroni_create_watchdog_device: /dev/watchdog

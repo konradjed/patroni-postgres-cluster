@@ -7,3 +7,5 @@ StartLimitIntervalSec=0
 [Service]
 Restart=always
 RestartSec=5
+ExecStart=
+ExecStart=/bin/bash -c "GOMAXPROCS=$(nproc) /usr/bin/etcd --config-file {{ patroni_create_vars_etcd_config_dir }}/etcd.conf.yaml"
