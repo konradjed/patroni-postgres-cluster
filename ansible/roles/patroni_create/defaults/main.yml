@@ -53,9 +53,10 @@ patroni_create_postgres_user_pass:
 patroni_create_replicator_user_pass:
 
 patroni_create_app_db_name: app
+patroni_create_app_user: app
 patroni_create_app_user_pass:
 
-patroni_create_migration_user: flyway
+patroni_create_migration_user: app
 patroni_create_migration_user_pass:
 
 patroni_create_pg_hba_additional: []

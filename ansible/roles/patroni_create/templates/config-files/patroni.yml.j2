@@ -72,7 +72,7 @@ bootstrap:
               - hostssl postgres postgres {{ hostvars[host].ansible_host }}/32 scram-sha-256
 {% endfor %}
 {% for addr in patroni_create_app_cidrs %}
-              - hostssl {{ patroni_create_app_db_name }} app_user {{ addr }} scram-sha-256
+              - hostssl {{ patroni_create_app_db_name }} {{ patroni_create_app_user }} {{ addr }} scram-sha-256
 {% endfor %}
 {% for addr in patroni_create_migration_cidrs %}
               - hostssl {{ patroni_create_app_db_name }} {{ patroni_create_migration_user }} {{ addr }} scram-sha-256
